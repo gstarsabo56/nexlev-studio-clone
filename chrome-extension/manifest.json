@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Nexlev Studio — YouTube Outlier, RPM & Faceless Overlay",
-  "version": "1.0.0",
-  "description": "Displays Outlier Scores, estimated RPM, Faceless badges, Homepage Filters, and a live Thumbnail Tester directly on YouTube.",
+  "name": "Nexlev Team Studio — YouTube Outlier & Idea Collector",
+  "version": "2.0.0",
+  "description": "Displays verified same-channel Outlier baselines, scenario RPM, and saves videos with full metadata directly to the shared Team Idea Library.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -10,7 +10,7 @@
   },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Nexlev Studio Overlay"
+    "default_title": "Nexlev Team Studio"
   },
   "permissions": [
     "storage",
@@ -18,10 +18,12 @@
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "http://localhost:3088/*"
+    "http://localhost:3088/*",
+    "http://127.0.0.1:3088/*"
   ],
   "background": {
-    "service_worker": "background/service-worker.js"
+    "service_worker": "background/service-worker.js",
+    "type": "module"
   },
   "content_scripts": [
     {

@@ -1,16 +1,25 @@
 {
-  "name": "nexlev-clone",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "start": "/opt/homebrew/opt/node@24/bin/node src/server.mjs",
-    "mcp": "/opt/homebrew/opt/node@24/bin/node mcp-server/index.mjs"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "name": "nexlev-studio-clone",
+  "version": "2.0.0",
+  "description": "Internal YouTube Niche Research, Honest Provenance Metrics & Team Production Workflow Platform (Web + SQLite WAL + MCP + Chrome Extension)",
+  "main": "src/server.mjs",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "mcp": "node mcp-server/index.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "youtube",
+    "niche-research",
+    "outlier-detection",
+    "mcp",
+    "sqlite"
+  ],
+  "license": "ISC",
   "dependencies": {
     "youtubei.js": "^18.1.0"
   }

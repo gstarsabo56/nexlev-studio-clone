@@ -1,53 +1,77 @@
-# Nexlev Studio — Reverse-Engineered YouTube Niche Finder, Outlier Radar & Creator Toolkit
+# Nexlev Internal Team Studio (`v2.0` — Honest Provenance & SQLite WAL Edition)
 
-A full-stack, zero-API-quota YouTube Niche Research & Faceless Creator Intelligence suite inspired by and reverse-engineered from `nexlev.io` / `dashboard.nexlev.io`.
-
----
-
-## 🏗️ Architecture & 3 Core Modules
-
-1. **Web Dashboard & REST API (`src/server.mjs`, `public/`)**
-   - **21-Filter Niche Finder**: Filter YouTube channels by Faceless status, Faceless confidence (`0..1`), AI-Assisted content, YPP Monetization status, Outlier Score tier (`0..3`), Subscriber range, Average views vs Median views, Video count, Duration (`>= 8m` mid-roll threshold), Estimated RPM, Monthly Revenue, Channel Age, Upload Frequency, Format (`documentary`, `explainer`, `tutorial`, `commentary`), Language, and **18 Global Country Markets**.
-   - **Infinite Snowball Multi-Country Auto-Crawler (`src/core/crawler.mjs`)**: Uses YouTube InnerTube (`youtubei.js`) to crawl 18 countries (`US`, `GB`, `CA`, `AU`, `CH`, `DE`, `NL`, `SE`, `FR`, `IT`, `ES`, `JP`, `KR`, `TW`, `VN`, `BR`, `MX`, `IN`) with localized seed keywords (`0 API quota`). Automatically extracts new topic phrases from high-performing Outlier videos (`outlierRatio >= 3.2x`) into a persistent `snowballQueue` and tracks `crawledSeeds` so every background cycle discovers fresh channels.
-   - **Viral Outliers Radar**: Identifies individual videos outperforming their channel's median views by `1.5x` to `12x+` on small/emerging channels.
-   - **48h Realtime Channel Tracker**: Tracks hourly view velocity across pinned competitor channels.
-   - **Thumbnail & Title Tester Lab**: Simulates the YouTube Homepage Grid (Dark Mode) with your draft thumbnail & title injected at slot #2 alongside viral competitor videos, plus an automated CTR Readiness & Curiosity Gap scorer (with optional `gemini-2.5-flash` enhancement).
-   - **Swipe File**: Shared idea & script vault synced across the Web Dashboard, Chrome Extension, and MCP Server.
-
-2. **Model Context Protocol (MCP) Server (`mcp-server/index.mjs`)**
-   - JSON-RPC 2.0 stdio MCP server exposing 9 tools for Claude Code, Cursor, and Antigravity:
-     - `find_youtube_niches`
-     - `scan_youtube_niche_live`
-     - `crawl_global_youtube_markets`
-     - `analyze_youtube_channel`
-     - `find_viral_outliers`
-     - `extract_video_transcript`
-     - `estimate_channel_rpm`
-     - `audit_thumbnail_and_title`
-     - `save_to_swipe_file`
-
-3. **Chrome Extension Manifest V3 (`chrome-extension/`)**
-   - Injects directly into `https://www.youtube.com/*` using `requestAnimationFrame` + `scheduler.yield()` batched DOM updates.
-   - Displays **🔥 Outlier Multiplier Badges**, **💎 Estimated RPM & Revenue**, a **YouTube Homepage Outlier Filter Bar**, an in-page **Thumbnail & Title Tester**, and a 1-click **Save to Swipe File** button.
+Hệ thống nội bộ phục vụ đội ngũ nghiên cứu ngách YouTube (Niche Finder), phát hiện video bứt phá (Viral Outliers), quản lý danh sách theo dõi chung (Shared Watchlist) và điều phối quy trình sản xuất 6 bước (**Phát hiện → Duyệt → Brief → Giao việc → Đã đăng → Đánh giá**) dùng chung giữa **Web Dashboard**, **Antigravity MCP Server** và **Chrome Extension**.
 
 ---
 
-## 🧮 Reverse-Engineered Core Formulas (`src/core/engine.mjs`)
+## 🎯 Triết lý Dữ liệu Trung thực (Honest Provenance)
 
-- **Outlier Score**:
-  $$\text{Outlier Ratio} = \frac{\text{Video Views}}{\text{Channel Median Views}}$$
-  Quantized into Nexlev's 4 tiers: `0` (`<1.5x`), `1` (`1.5x–3.0x` Above Avg), `2` (`3.0x–5.0x` Strong Outlier), `3` (`>=5.0x` Exceptional Outlier).
-- **Multi-Variable RPM Estimation**:
-  $$\text{Estimated RPM} = \text{BaseNicheCPM} \times \text{GeoTierWeight} \times \text{CountryMarketMultiplier} \times \text{DurationMidrollFactor} \times 0.55$$
-- **Atomic & Cached Persistence**:
-  `loadDb()` uses an `mtimeMs`-invalidated in-memory cache for `0ms` read latency, while `saveDb()` writes atomically via `.tmp` + `fs.renameSync` to prevent corruption across concurrent Server and MCP processes.
+1. **Thiếu dữ liệu là `null` / `unknown` (Có nêu lý do)**:
+   - Không bao giờ tự sinh số `subscribers`, `videoCount`, `channelAgeMonths`, `likes`, `comments` hoặc tỷ lệ tăng trưởng từ vài video tìm kiếm.
+   - Không suy diễn trạng thái bật kiếm tiền YPP chỉ từ `subscribers >= 1000`.
+   - Không gán quốc gia/ngôn ngữ từ khóa tìm kiếm (`discoveryMarket`) làm quốc gia kênh (`channelCountry`) hoặc phân bổ khán giả (`audienceGeography`).
+   - Không sinh biểu đồ 48h bằng hàm `Math.sin`. Tăng trưởng chỉ được tính từ bảng lịch sử `metric_snapshots` thực tế.
+2. **Mọi chỉ số đều có trạng thái nguồn gốc (`status`)**:
+   - `observed`: Quan sát trực tiếp từ YouTube (InnerTube hoặc YouTube Data API v3).
+   - `derived`: Tính toán toán học từ mẫu quan sát đủ điều kiện (ví dụ: `outlierRatio`, `medianViews` khi `sampleSize >= 3`).
+   - `estimated`: Kịch bản ước lượng/heuristic có nêu rõ giả định (ví dụ: `estimatedRpm`, `facelessLabel`).
+   - `unknown` / `insufficient_data`: Chưa có dữ liệu nguồn hoặc mẫu video `< 3`.
+   - `legacy_unverified`: Dữ liệu lịch sử chuyển từ bản JSON cũ sang SQLite, đã loại bỏ các trường suy diễn giả và gắn nhãn cảnh báo chờ làm giàu lại.
+   - `demo`: Dữ liệu mẫu chỉ hiển thị khi bật công tắc **Include Demo**; mặc định bị loại khỏi mọi kết quả nghiên cứu.
 
 ---
 
-## 🚀 Quick Start
+## 🏗️ Kiến trúc Hệ thống
 
+- **Centralized SQLite WAL (`data/nexlev.sqlite`)**: Sử dụng module tích hợp `node:sqlite` (`DatabaseSync`) của Node.js `>=22.5 / 24.x` ở chế độ `WAL` + `busy_timeout = 5000` + giao dịch `BEGIN IMMEDIATE`. Cho phép Web Server, Background Crawler, Chrome Extension và MCP Server đọc/ghi đồng thời mà không bao giờ bị mất cập nhật (lost updates).
+- **Xác thực Nội bộ & Phân quyền (`manager` / `member`)**:
+  - Hỗ trợ đăng nhập theo tài khoản nhân viên (`users`, `user_sessions`) và `api_token` riêng cho từng thành viên.
+  - Quyền `manager`: Cấu hình API Key, lịch chạy Crawler toàn cục, quản lý nhân sự.
+  - Quyền `member`: Nghiên cứu kênh/video, thêm Watchlist, lưu ý tưởng vào Swipe Library, tạo Production Brief, cập nhật tiến độ công việc được giao.
+- **Quy trình Sản xuất 6 Bước (Shared Team Workflow)**:
+  1. `discovered` (**1. Phát hiện**)
+  2. `approved` (**2. Duyệt**)
+  3. `briefing` (**3. Brief**)
+  4. `assigned` (**4. Giao việc**)
+  5. `published` (**5. Đã đăng**)
+  6. `review` (**6. Đánh giá**)
+  - Mỗi công việc có đầy đủ: **Người phụ trách (`ownerLabel` / `assigneeId`)**, **Deadline (`deadline`)**, **Ghi chú (`notes`)**, **Link kết quả (`resultUrl`)**, và **Production Brief Markdown**.
+
+---
+
+## 🚀 Cài đặt & Khởi chạy Nhanh (macOS Apple Silicon)
+
+### 1. Yêu cầu môi trường
+- **Node.js `>= 22.5.0`** (Khuyến nghị **Node.js `24.x`** đã có sẵn `node:sqlite` và `node:test`).
+- Kiểm tra phiên bản Node:
+  ```bash
+  node -v
+  ```
+  *(Nếu máy cài Node 24 qua Homebrew tại `/opt/homebrew/opt/node@24/bin`, thêm vào `PATH`: `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`).*
+
+### 2. Cài đặt dependencies & Chạy Test
 ```bash
 npm install
-npm start
-# Dashboard runs at http://localhost:3088
+npm test
 ```
+
+### 3. Khởi động Web Server & REST API
+```bash
+npm start
+```
+- Mặc định server chỉ lắng nghe trên loopback `http://127.0.0.1:3088` để đảm bảo an toàn.
+- Tài khoản nội bộ mặc định (có thể đổi qua biến môi trường `NEXLEV_ADMIN_PASSWORD`, `NEXLEV_MEMBER_PASSWORD`):
+  - **Quản lý (`manager`)**: `admin` / `nexlev-admin-2026`
+  - **Nhân viên 1 (`member`)**: `member1` / `nexlev-member-2026`
+  - **Nhân viên 2 (`member`)**: `member2` / `nexlev-member-2026`
+
+---
+
+## 📚 Tài liệu Kỹ thuật Chi tiết
+
+- [Mô hình Dữ liệu & Schema SQLite (`docs/DATA_MODEL.md`)](docs/DATA_MODEL.md)
+- [Công thức Chỉ số & Giới hạn Trung thực (`docs/METRICS_AND_LIMITATIONS.md`)](docs/METRICS_AND_LIMITATIONS.md)
+- [Di trú Dữ liệu, Sao lưu & Phục hồi (`docs/MIGRATION_AND_BACKUP.md`)](docs/MIGRATION_AND_BACKUP.md)
+- [Cài đặt Antigravity MCP & Chrome Extension (`docs/ANTIGRAVITY_MCP_SETUP.md`)](docs/ANTIGRAVITY_MCP_SETUP.md)
+- [Báo cáo Kiểm chứng & Đối chiếu Audit (`docs/VERIFICATION_REPORT.md`)](docs/VERIFICATION_REPORT.md)
+- [Lộ trình Mở rộng Nội bộ (`docs/ROADMAP.md`)](docs/ROADMAP.md)

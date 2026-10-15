@@ -1,15 +1,23 @@
-// Infinite Snowball Multi-Country YouTube InnerTube Crawler
-// Automatically expands keywords from viral Outliers and rotates across 18 countries
+// Honest Multi-Market YouTube Discovery & Channel Enrichment Crawler (Batch 3)
+// Separates Discovery Provider (Keyword Search) from Channel Enrichment Provider (Channel Videos + Metadata)
+// Persists seed state (crawl_seeds), job lifecycle (crawl_jobs), and schedule in SQLite.
 
+import crypto from "node:crypto";
 import { Innertube } from "youtubei.js";
 import {
-  loadDb,
-  saveDb,
-  computeOutlierTier,
-  classifyFacelessAndNiche,
-  estimateChannelRpmAndRevenue,
-  deriveChannelStatsFromVideos
-} from "./engine.mjs";
+  ensureDbMigrated,
+  getAppSetting,
+  setAppSetting,
+  loadSecrets,
+  upsertChannelAndVideos,
+  DEFAULT_MIN_OUTLIER_SAMPLE_SIZE
+} from "./sqlite-repo.mjs";
+import {
+  parseCountTextStrict,
+  parsePublishedTextStrict,
+  parseDurationSecondsStrict,
+  classifyVideoContentType
+} from "./parsers.mjs";
 
 export const GLOBAL_COUNTRIES = [
   {
@@ -253,7 +261,7 @@ export const GLOBAL_COUNTRIES = [
 
 const clientCache = new Map();
 
-async function getCountryInnertube(lang = "en", location = "US") {
+export async function getCountryInnertube(lang = "en", location = "US") {
   const key = `${lang}_${location}`;
   if (!clientCache.has(key)) {
     const p = Innertube.create({
@@ -269,372 +277,847 @@ async function getCountryInnertube(lang = "en", location = "US") {
   return clientCache.get(key);
 }
 
-function parseCountText(txt = "") {
-  if (!txt) return 0;
-  const clean = String(txt).replace(/,/g, "").trim();
-  const m = clean.match(/([\d.]+)\s*([KMBkmb]|N|Tr|만|억|万)?/i);
-  if (!m) return 0;
-  const num = parseFloat(m[1]);
-  const unit = (m[2] || "").toUpperCase();
-  if (unit === "K" || unit === "N") return Math.round(num * 1_000);
-  if (unit === "만" || unit === "万") return Math.round(num * 10_000);
-  if (unit === "M" || unit === "TR") return Math.round(num * 1_000_000);
-  if (unit === "B" || unit === "억") return Math.round(num * 100_000_000);
-  return Math.round(num);
-}
-
-function parsePublishedDaysAgo(txt = "") {
-  const s = String(txt).toLowerCase();
-  const m = s.match(
-    /(\d+)\s*(hour|day|week|month|year|giờ|ngày|tuần|tháng|năm|시간|일|주|개월|년|時間|日|週間|か月|年|tag|woche|monat|jahr|día|semana|mes|año)/i
-  );
-  if (!m) return 12;
-  const n = parseInt(m[1], 10);
-  const u = m[2];
-  if (/hour|giờ|시간|時間/.test(u)) return 1;
-  if (/day|ngày|일|日|tag|día/.test(u)) return n;
-  if (/week|tuần|주|週間|woche|semana/.test(u)) return n * 7;
-  if (/month|tháng|개월|か月|monat|mes/.test(u)) return n * 30;
-  if (/year|năm|년|年|jahr|año/.test(u)) return n * 365;
-  return 12;
-}
-
 /**
- * Extracts snowball seed phrases from viral outlier video titles so the crawler
- * continuously discovers new sub-niches automatically on future runs.
+ * Multilingual Snowball Phrase Extractor
+ * Supports Latin, CJK, and Vietnamese characters via Unicode property escapes.
  */
-function extractSnowballPhrase(title = "") {
-  const clean = String(title)
-    .replace(/\[.*?\]|\(.*?\)/g, "")
-    .replace(/[^a-zA-Z0-9\s]/g, " ")
+export function extractSnowballPhrase(title = "", lang = "en") {
+  const clean = String(title || "")
+    .replace(/\[.*?\]|\(.*?\)/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+
+  if (!clean) return null;
+
   const stop = new Set([
     "the", "and", "for", "that", "this", "with", "from", "what", "why", "how",
-    "was", "were", "are", "you", "your", "about", "into", "over", "after", "before"
+    "was", "were", "are", "you", "your", "about", "into", "over", "after", "before",
+    "para", "como", "por", "una", "del", "las", "los", "pour", "dans", "avec",
+    "und", "der", "die", "das", "mit", "von", "của", "những", "trong", "được"
   ]);
-  const words = clean.split(" ").filter((w) => w.length >= 4 && !stop.has(w));
-  if (words.length < 3) return null;
-  return `${words.slice(0, 3).join(" ")} documentary`;
+
+  const words = clean.split(" ").filter((w) => w.length >= 2 && !stop.has(w));
+  if (words.length < 2) return null;
+
+  const suffixByLang = {
+    en: "documentary",
+    de: "doku",
+    fr: "documentaire",
+    es: "documental",
+    pt: "documentario",
+    it: "documentario",
+    nl: "documentaire",
+    ja: "解説",
+    ko: "다큐",
+    zh: "紀錄片",
+    vi: "phân tích"
+  };
+  const suffix = suffixByLang[lang] || "documentary";
+  return `${words.slice(0, 3).join(" ")} ${suffix}`.trim();
 }
+
+// ============================================================================
+// SEED SELECTION & PERSISTENCE (SQLite crawl_seeds)
+// ============================================================================
+
+export function ensureStaticSeedsRegistered(db, countriesList = GLOBAL_COUNTRIES) {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO crawl_seeds (
+      seed_key, market_code, language_code, keyword, origin, status, created_at
+    ) VALUES (?, ?, ?, ?, 'static', 'pending', ?)
+  `);
+  for (const c of countriesList) {
+    for (const kw of c.seeds || []) {
+      stmt.run(`${c.code}:${kw}`, c.code, c.lang, kw, now);
+    }
+  }
+}
+
+/**
+ * Selects up to `limit` seeds for a market:
+ * 1. Unseen seeds first (`last_success_at IS NULL`), ordered by `attempt_count ASC, created_at ASC`.
+ * 2. When all seeds have been crawled (`unseen` exhausted), selects the OLDEST crawled seeds
+ *    (`ORDER BY last_success_at ASC, seed_key ASC`) — NEVER repeats the beginning of the array!
+ */
+export function selectSeedsForMarket(db, marketCode, limit = 3, customKeyword = "") {
+  const cleanCustom = String(customKeyword || "").trim();
+  if (cleanCustom) {
+    const countryMeta = GLOBAL_COUNTRIES.find((c) => c.code === marketCode) || {
+      code: marketCode,
+      lang: "en"
+    };
+    const now = new Date().toISOString();
+    const seedKey = `${marketCode}:${cleanCustom}`;
+    db.prepare(`
+      INSERT OR IGNORE INTO crawl_seeds (
+        seed_key, market_code, language_code, keyword, origin, status, created_at
+      ) VALUES (?, ?, ?, ?, 'custom', 'pending', ?)
+    `).run(seedKey, marketCode, countryMeta.lang, cleanCustom, now);
+
+    return db.prepare("SELECT * FROM crawl_seeds WHERE seed_key = ?").all(seedKey);
+  }
+
+  ensureStaticSeedsRegistered(db);
+
+  // 1. Unseen seeds (never succeeded yet)
+  const unseen = db
+    .prepare(
+      `SELECT * FROM crawl_seeds
+       WHERE market_code = ? AND last_success_at IS NULL
+       ORDER BY attempt_count ASC, created_at ASC, seed_key ASC
+       LIMIT ?`
+    )
+    .all(marketCode, limit);
+
+  if (unseen.length >= limit) {
+    return unseen;
+  }
+
+  // 2. Fill remaining slots with OLDEST successfully crawled seeds
+  const remaining = limit - unseen.length;
+  const unseenKeys = new Set(unseen.map((s) => s.seed_key));
+  const oldestSeen = db
+    .prepare(
+      `SELECT * FROM crawl_seeds
+       WHERE market_code = ? AND last_success_at IS NOT NULL
+       ORDER BY last_success_at ASC, seed_key ASC
+       LIMIT ?`
+    )
+    .all(marketCode, remaining + unseen.length)
+    .filter((s) => !unseenKeys.has(s.seed_key))
+    .slice(0, remaining);
+
+  return [...unseen, ...oldestSeen];
+}
+
+export function markSeedAttemptStart(db, seedKey, timestamp = new Date().toISOString()) {
+  db.prepare(`
+    UPDATE crawl_seeds SET
+      status = 'running',
+      attempt_count = attempt_count + 1,
+      last_attempt_at = ?
+    WHERE seed_key = ?
+  `).run(timestamp, seedKey);
+}
+
+export function markSeedSuccess(
+  db,
+  seedKey,
+  discoveredCount = 0,
+  timestamp = new Date().toISOString()
+) {
+  db.prepare(`
+    UPDATE crawl_seeds SET
+      status = 'succeeded',
+      last_success_at = ?,
+      last_error = NULL,
+      discovered_channels_count = discovered_channels_count + ?
+    WHERE seed_key = ?
+  `).run(timestamp, discoveredCount, seedKey);
+}
+
+/**
+ * When a seed fails, NEVER set last_success_at! Keep last_success_at unchanged so it will be retried.
+ */
+export function markSeedFailure(
+  db,
+  seedKey,
+  errorMessage = "crawl_failed",
+  timestamp = new Date().toISOString()
+) {
+  db.prepare(`
+    UPDATE crawl_seeds SET
+      status = 'failed',
+      last_attempt_at = ?,
+      last_error = ?
+    WHERE seed_key = ?
+  `).run(timestamp, String(errorMessage || "crawl_failed"), seedKey);
+}
+
+// ============================================================================
+// PROVIDERS: YOUTUBE DATA API v3 ENRICher + INNERTUBE DISCOVERY/ENRICHER
+// ============================================================================
+
+/**
+ * Optional Official YouTube Data API v3 Enricher (used automatically when youtubeApiKey is configured)
+ */
+export async function enrichChannelViaYouTubeDataApi(
+  channelId,
+  apiKey,
+  fetchImpl = globalThis.fetch
+) {
+  if (!apiKey || !channelId || !channelId.startsWith("UC")) return null;
+
+  try {
+    const chUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${encodeURIComponent(
+      channelId
+    )}&key=${encodeURIComponent(apiKey)}`;
+    const chResp = await fetchImpl(chUrl);
+    if (!chResp.ok) return null;
+    const chData = await chResp.json();
+    const item = chData?.items?.[0];
+    if (!item) return null;
+
+    const stats = item.statistics || {};
+    const snippet = item.snippet || {};
+    const uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads;
+
+    const observedSubscribers =
+      stats.hiddenSubscriberCount || stats.subscriberCount === undefined
+        ? null
+        : Number(stats.subscriberCount);
+    const observedTotalViews =
+      stats.viewCount !== undefined ? Number(stats.viewCount) : null;
+    const observedVideoCount =
+      stats.videoCount !== undefined ? Number(stats.videoCount) : null;
+    const observedChannelCountry = snippet.country || null;
+    const observedJoinedAt = snippet.publishedAt || null;
+
+    const enrichedVideos = [];
+    if (uploadsPlaylistId) {
+      const plUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(
+        uploadsPlaylistId
+      )}&maxResults=12&key=${encodeURIComponent(apiKey)}`;
+      const plResp = await fetchImpl(plUrl);
+      if (plResp.ok) {
+        const plData = await plResp.json();
+        const videoIds = (plData?.items || [])
+          .map((x) => x.contentDetails?.videoId)
+          .filter(Boolean);
+
+        if (videoIds.length > 0) {
+          const vUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${encodeURIComponent(
+            videoIds.join(",")
+          )}&key=${encodeURIComponent(apiKey)}`;
+          const vResp = await fetchImpl(vUrl);
+          if (vResp.ok) {
+            const vData = await vResp.json();
+            const nowMs = Date.now();
+            for (const vItem of vData?.items || []) {
+              const vStats = vItem.statistics || {};
+              const vSnip = vItem.snippet || {};
+              const durParsed = parseDurationSecondsStrict(
+                vItem.contentDetails?.duration || ""
+              );
+              const pubAt = vSnip.publishedAt || null;
+              const pubDays = pubAt
+                ? Number(Math.max(0.04, (nowMs - Date.parse(pubAt)) / 86_400_000).toFixed(2))
+                : null;
+              const cType = classifyVideoContentType({
+                durationSeconds: durParsed.seconds,
+                title: vSnip.title || ""
+              });
+
+              enrichedVideos.push({
+                videoId: vItem.id,
+                title: vSnip.title || "",
+                description: vSnip.description || "",
+                thumbnailUrl:
+                  vSnip.thumbnails?.high?.url ||
+                  vSnip.thumbnails?.medium?.url ||
+                  `https://i.ytimg.com/vi/${vItem.id}/hqdefault.jpg`,
+                canonicalUrl: `https://www.youtube.com/watch?v=${vItem.id}`,
+                contentType: typeof cType === "string" ? cType : cType?.contentType || "unknown",
+                views:
+                  vStats.viewCount !== undefined ? Number(vStats.viewCount) : null,
+                viewsStatus: vStats.viewCount !== undefined ? "observed" : "unknown",
+                viewsIsRounded: false,
+                likes:
+                  vStats.likeCount !== undefined ? Number(vStats.likeCount) : null,
+                comments:
+                  vStats.commentCount !== undefined ? Number(vStats.commentCount) : null,
+                durationSeconds: durParsed.seconds,
+                durationMinutes: durParsed.minutes,
+                publishedAt: pubAt,
+                publishedDaysAgo: pubDays,
+                publishedStatus: pubDays !== null ? "observed" : "unknown",
+                dataOrigin: "observed",
+                source: "youtube_data_api_v3"
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      source: "youtube_data_api_v3",
+      title: snippet.title || null,
+      handle: snippet.customUrl || null,
+      description: snippet.description || "",
+      avatarUrl: snippet.thumbnails?.high?.url || snippet.thumbnails?.default?.url || null,
+      observedSubscribers,
+      observedTotalViews,
+      observedVideoCount,
+      observedChannelCountry,
+      observedJoinedAt,
+      observedContentLanguage: snippet.defaultAudioLanguage || snippet.defaultLanguage || null,
+      videos: enrichedVideos
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Converts a raw InnerTube search item into an honest video & author observation.
+ * NEVER fabricates views=95000, duration=1080, or publishedDaysAgo=12!
+ */
+export function parseInnerTubeSearchItem(item, localeHint = "en", collectedAt = new Date().toISOString()) {
+  const videoId = item?.id || item?.video_id;
+  const title = item?.title?.text || item?.title?.toString?.() || "";
+  if (!videoId || !title) return null;
+
+  const authorId = item?.author?.id || null;
+  const authorName = item?.author?.name || null;
+  const authorHandle = item?.author?.handle || null;
+  if (!authorId) return null; // Do not invent fake channel IDs for unattributed items
+
+  const rawViewText =
+    item?.view_count?.text ||
+    item?.short_view_count?.text ||
+    (typeof item?.view_count === "number" ? item.view_count : "");
+  const parsedViews = parseCountTextStrict(rawViewText, localeHint);
+
+  const rawDuration =
+    typeof item?.duration?.seconds === "number" && item.duration.seconds > 0
+      ? item.duration.seconds
+      : item?.duration?.text || "";
+  const parsedDuration = parseDurationSecondsStrict(rawDuration);
+
+  const rawPubText = item?.published?.text || "";
+  const parsedPub = parsePublishedTextStrict(rawPubText, collectedAt);
+
+  const cType = classifyVideoContentType({
+    durationSeconds: parsedDuration.seconds,
+    title,
+    url: item?.endpoint?.metadata?.url || "",
+    isLive: Boolean(item?.is_live)
+  });
+
+  const thumb =
+    item?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+  return {
+    channelId: authorId,
+    channelTitle: authorName || "Unknown Channel",
+    channelHandle: authorHandle || null,
+    avatarUrl: item?.author?.thumbnails?.[0]?.url || thumb,
+    video: {
+      videoId,
+      title,
+      thumbnailUrl: thumb,
+      canonicalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      contentType: typeof cType === "string" ? cType : cType?.contentType || "unknown",
+      views: parsedViews.value,
+      viewsStatus: parsedViews.status,
+      viewsIsRounded: parsedViews.isRounded,
+      likes: null,
+      comments: null,
+      durationSeconds: parsedDuration.seconds,
+      durationMinutes: parsedDuration.minutes,
+      publishedAt: parsedPub.publishedAt,
+      publishedDaysAgo: parsedPub.publishedDaysAgo,
+      publishedStatus: parsedPub.status,
+      dataOrigin: "observed",
+      source: "youtube_innertube_search",
+      collectedAt
+    }
+  };
+}
+
+// ============================================================================
+// CRAWLER RUNTIME STATE, PERSISTENT SCHEDULE & JOB LIFECYCLE
+// ============================================================================
 
 export const crawlerState = {
   isRunning: false,
-  autoScheduleEnabled: true,
-  intervalMinutes: 5,
+  currentJobId: null,
+  autoScheduleEnabled: false,
+  intervalMinutes: 15,
   lastRunAt: null,
   lastSummary: null,
   totalCrawlsRun: 0,
   cursorIndex: 0
 };
 
+let autoTimer = null;
+
 /**
- * Crawls a batch of countries and automatically picks UNSEEN seeds first
- * (plus Snowball-discovered seeds) so every subsequent run adds fresh channels!
+ * Recovers any crawl_jobs left in 'running' state after a process restart.
  */
-export async function crawlMultiCountryBatch({
-  countries = ["ALL"],
-  keywordsPerCountry = 3,
-  maxChannelsPerKeyword = 7,
-  customKeyword = ""
-} = {}) {
-  if (crawlerState.isRunning) {
-    return {
-      alreadyRunning: true,
-      crawlerState
-    };
-  }
-
-  crawlerState.isRunning = true;
-  const startedAt = new Date().toISOString();
-  let newChannelsCount = 0;
-  let updatedChannelsCount = 0;
-  const targetCountries = GLOBAL_COUNTRIES.filter((c) =>
-    countries.includes("ALL") ? true : countries.includes(c.code)
-  );
-
-  try {
-    const db = loadDb();
-    db.crawledSeeds = db.crawledSeeds || {};
-    db.snowballQueue = db.snowballQueue || [];
-
-    for (const countryMeta of targetCountries) {
-      let yt;
-      try {
-        yt = await getCountryInnertube(countryMeta.lang, countryMeta.code);
-      } catch {
-        continue;
-      }
-
-      // Combine static country seeds + snowball seeds for this country
-      const countrySnowball = db.snowballQueue
-        .filter((s) => s.country === countryMeta.code)
-        .map((s) => s.keyword);
-      const allCandidateSeeds = [...countryMeta.seeds, ...countrySnowball];
-
-      // Pick unseen seeds first; if all seen, rotate from least recently crawled
-      const unseenSeeds = allCandidateSeeds.filter(
-        (seed) => !db.crawledSeeds[`${countryMeta.code}:${seed}`]
-      );
-      const pool = unseenSeeds.length > 0 ? unseenSeeds : allCandidateSeeds;
-
-      const seedsToRun = customKeyword
-        ? [customKeyword]
-        : pool.slice(0, keywordsPerCountry);
-
-      for (const seed of seedsToRun) {
-        db.crawledSeeds[`${countryMeta.code}:${seed}`] = new Date().toISOString();
-        try {
-          const search = await yt.search(seed, { type: "video" });
-          const rawVideos = (search?.videos || []).slice(0, maxChannelsPerKeyword * 3);
-
-          const byChannel = new Map();
-          for (const item of rawVideos) {
-            const videoId = item.id || item.video_id;
-            const title = item.title?.text || item.title?.toString?.() || "";
-            if (!videoId || !title) continue;
-
-            const chId = item.author?.id || `UC_${countryMeta.code}_${videoId.slice(0, 7)}`;
-            const chName = item.author?.name || `${countryMeta.code} Creator`;
-            const rawHandle =
-              item.author?.handle ||
-              "@" +
-                chName
-                  .replace(/\s+/g, "")
-                  .replace(/[^a-zA-Z0-9_]/g, "")
-                  .slice(0, 18);
-            const chHandle =
-              rawHandle.startsWith("@") && rawHandle.length > 1
-                ? rawHandle
-                : `@${countryMeta.code}_${videoId.slice(0, 6)}`;
-
-            const views =
-              parseCountText(item.view_count?.text || item.short_view_count?.text || "") ||
-              95000;
-            const durationSec = item.duration?.seconds || 1080;
-            const durationMinutes = Number((durationSec / 60).toFixed(1));
-            const publishedDaysAgo = parsePublishedDaysAgo(item.published?.text || "");
-            const thumb =
-              item.thumbnails?.[0]?.url ||
-              `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-            if (!byChannel.has(chId)) {
-              byChannel.set(chId, {
-                id: chId,
-                handle: chHandle,
-                title: chName,
-                avatarUrl: item.author?.thumbnails?.[0]?.url || thumb,
-                videos: []
-              });
-            }
-            byChannel.get(chId).videos.push({
-              videoId,
-              title,
-              views,
-              durationMinutes,
-              publishedDaysAgo,
-              thumbnailUrl: thumb
-            });
-          }
-
-          let addedForSeed = 0;
-          for (const [, chGroup] of byChannel.entries()) {
-            const allText = `${seed} ${chGroup.title} ${chGroup.videos.map((v) => v.title).join(" ")}`;
-            const cls = classifyFacelessAndNiche(allText);
-            const stats = deriveChannelStatsFromVideos(chGroup.videos, chGroup.title);
-            const {
-              medianViews,
-              avgViews,
-              totalViews,
-              subscribers,
-              videoCount,
-              uploadFrequencyPerMonth,
-              channelAgeMonths,
-              growthRate30d,
-              monthlyViews
-            } = stats;
-
-            const avgDurationMinutes =
-              Number(
-                (
-                  chGroup.videos.reduce((acc, v) => acc + v.durationMinutes, 0) /
-                  chGroup.videos.length
-                ).toFixed(1)
-              ) || 16.0;
-            const contentType = avgDurationMinutes <= 1.2 ? "shorts" : "long";
-
-            const baseRpmInfo = estimateChannelRpmAndRevenue({
-              niche: cls.niche,
-              avgDurationMinutes,
-              contentType,
-              monthlyViews
-            });
-
-            const adjustedRpm = Number(
-              (baseRpmInfo.estimatedRpm * countryMeta.cpmMultiplier).toFixed(2)
-            );
-            const baseRev = (monthlyViews / 1000) * adjustedRpm;
-            const monthlyRevenueMin = Math.round(baseRev * 0.84);
-            const monthlyRevenueMax = Math.round(baseRev * 1.18);
-
-            const enrichedVideos = chGroup.videos.map((v) => {
-              const outlierRatio = Number((v.views / Math.max(1, medianViews)).toFixed(2));
-              const outlierScore = computeOutlierTier(outlierRatio);
-              const estimatedRevenue = Math.round((v.views / 1000) * adjustedRpm);
-
-              // Snowball expansion: extract new keyword from high-performing video
-              if (outlierRatio >= 3.2 && countryMeta.lang === "en") {
-                const phrase = extractSnowballPhrase(v.title);
-                if (
-                  phrase &&
-                  db.snowballQueue.length < 300 &&
-                  !db.snowballQueue.some((x) => x.keyword === phrase)
-                ) {
-                  db.snowballQueue.push({
-                    country: countryMeta.code,
-                    keyword: phrase,
-                    discoveredAt: new Date().toISOString()
-                  });
-                }
-              }
-
-              return {
-                ...v,
-                outlierRatio,
-                outlierScore,
-                estimatedRevenue,
-                likes: Math.round(v.views * 0.039),
-                comments: Math.round(v.views * 0.0026)
-              };
-            });
-
-            const topOutlierRatio = Math.max(
-              ...enrichedVideos.map((v) => v.outlierRatio),
-              1.8
-            );
-            const maxOutlierScore = computeOutlierTier(topOutlierRatio);
-
-            const hourlyBase = Math.max(350, Math.round(monthlyViews / 720));
-            const hourly48hSeries = Array.from({ length: 48 }, (_, idx) =>
-              Math.round(hourlyBase * (0.82 + 0.36 * Math.sin(idx / 3.6)))
-            );
-
-            const channelObj = {
-              id: chGroup.id,
-              handle: chGroup.handle,
-              title: chGroup.title,
-              niche: cls.niche,
-              format: cls.format,
-              contentType,
-              language: countryMeta.lang,
-              country: countryMeta.code,
-              countryName: countryMeta.name,
-              isFaceless: cls.isFaceless,
-              facelessConfidence: cls.facelessConfidence,
-              isAiContent: cls.isAiContent,
-              isMonetized: subscribers >= 1000,
-              isKidsContent: false,
-              subscribers,
-              totalViews,
-              avgViews,
-              medianViews,
-              videoCount,
-              avgDurationMinutes,
-              uploadFrequencyPerMonth,
-              channelAgeMonths,
-              growthRate30d,
-              estimatedRpm: adjustedRpm,
-              monthlyViews,
-              monthlyRevenueMin,
-              monthlyRevenueMax,
-              maxOutlierScore,
-              topOutlierRatio,
-              avatarUrl: chGroup.avatarUrl,
-              description: `[${countryMeta.name}] Discovered via "${seed}" — ${cls.niche} (${cls.format}).`,
-              monetizationSignals: [
-                avgDurationMinutes >= 8 ? "Mid-roll Ads (>8m)" : "Standard Ads",
-                `Market: ${countryMeta.name}`,
-                `Est. RPM $${adjustedRpm}`
-              ],
-              geographyBreakdown: [
-                { country: countryMeta.code, share: 0.62, rpm: adjustedRpm },
-                { country: "US", share: 0.22, rpm: baseRpmInfo.estimatedRpm },
-                { country: "Other", share: 0.16, rpm: Number((adjustedRpm * 0.45).toFixed(2)) }
-              ],
-              realtime48hViews: hourly48hSeries.reduce((a, b) => a + b, 0),
-              hourly48hSeries,
-              videos: enrichedVideos,
-              discoveredViaKeyword: seed,
-              lastUpdatedAt: new Date().toISOString()
-            };
-
-            const existingIdx = db.channels.findIndex((c) => c.id === channelObj.id);
-            if (existingIdx >= 0) {
-              db.channels[existingIdx] = channelObj;
-              updatedChannelsCount += 1;
-            } else {
-              db.channels.push(channelObj);
-              newChannelsCount += 1;
-            }
-
-            addedForSeed += 1;
-            if (addedForSeed >= maxChannelsPerKeyword) break;
-          }
-        } catch {
-          // continue next seed
-        }
-      }
-    }
-
-    saveDb(db);
-    crawlerState.lastRunAt = new Date().toISOString();
-    crawlerState.totalCrawlsRun += 1;
-    crawlerState.lastSummary = {
-      startedAt,
-      completedAt: crawlerState.lastRunAt,
-      countriesCrawled: targetCountries.map((c) => c.code),
-      newChannelsCount,
-      updatedChannelsCount,
-      totalChannelsInDb: db.channels.length,
-      snowballQueueSize: (db.snowballQueue || []).length,
-      crawledSeedsCount: Object.keys(db.crawledSeeds || {}).length
-    };
-
-    return crawlerState.lastSummary;
-  } finally {
-    crawlerState.isRunning = false;
-  }
+export function recoverInterruptedCrawlJobs(customDb = null) {
+  const db = ensureDbMigrated(customDb);
+  const now = new Date().toISOString();
+  const info = db
+    .prepare(
+      `UPDATE crawl_jobs SET
+         status = 'failed',
+         error_text = 'interrupted_by_restart',
+         completed_at = ?
+       WHERE status = 'running'`
+    )
+    .run(now);
+  db.prepare(
+    `UPDATE crawl_seeds SET status = 'failed', last_error = 'interrupted_by_restart' WHERE status = 'running'`
+  ).run();
+  return info.changes;
 }
 
 /**
- * Starts a continuous background auto-updater inside the server process
- * that rotates across countries every `intervalMinutes` (default 5 mins)
- * and crawls unseen seeds + Snowball-discovered seeds automatically.
+ * Loads persisted schedule from SQLite app_settings and applies it without accidentally enabling disabled timers.
  */
-let autoTimer = null;
-export function startBackgroundAutoCrawler(intervalMinutes = 5) {
-  crawlerState.intervalMinutes = intervalMinutes;
-  crawlerState.autoScheduleEnabled = true;
-  if (autoTimer) clearInterval(autoTimer);
+export function syncScheduleFromDb(customDb = null) {
+  const db = ensureDbMigrated(customDb);
+  const saved = getAppSetting(db, "crawlerSchedule", {
+    autoScheduleEnabled: false,
+    intervalMinutes: 15
+  });
+  crawlerState.autoScheduleEnabled = Boolean(saved?.autoScheduleEnabled);
+  crawlerState.intervalMinutes = Math.max(1, Number(saved?.intervalMinutes || 15));
+  applyScheduleTimer();
+  return crawlerState;
+}
 
+function applyScheduleTimer() {
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+  if (!crawlerState.autoScheduleEnabled) {
+    return;
+  }
   autoTimer = setInterval(async () => {
     if (!crawlerState.autoScheduleEnabled || crawlerState.isRunning) return;
     const countryCodes = GLOBAL_COUNTRIES.map((c) => c.code);
     const slice = [
       countryCodes[crawlerState.cursorIndex % countryCodes.length],
-      countryCodes[(crawlerState.cursorIndex + 1) % countryCodes.length],
-      countryCodes[(crawlerState.cursorIndex + 2) % countryCodes.length]
+      countryCodes[(crawlerState.cursorIndex + 1) % countryCodes.length]
     ];
-    crawlerState.cursorIndex = (crawlerState.cursorIndex + 3) % countryCodes.length;
+    crawlerState.cursorIndex = (crawlerState.cursorIndex + 2) % countryCodes.length;
     try {
       await crawlMultiCountryBatch({
         countries: slice,
         keywordsPerCountry: 2,
-        maxChannelsPerKeyword: 6
+        maxChannelsPerKeyword: 5
       });
     } catch {
-      // ignore background timer error
+      // background error recorded in crawl_jobs
     }
-  }, intervalMinutes * 60 * 1000);
+  }, crawlerState.intervalMinutes * 60 * 1000);
+}
+
+/**
+ * Updates crawler schedule settings in SQLite and memory.
+ * Sending { autoScheduleEnabled: false, intervalMinutes: 15 } keeps the crawler DISABLED!
+ */
+export function updateCrawlerSchedule(
+  { autoScheduleEnabled, intervalMinutes } = {},
+  customDb = null
+) {
+  const db = ensureDbMigrated(customDb);
+  if (Number(intervalMinutes) > 0) {
+    crawlerState.intervalMinutes = Math.max(1, Math.round(Number(intervalMinutes)));
+  }
+  if (typeof autoScheduleEnabled === "boolean") {
+    crawlerState.autoScheduleEnabled = autoScheduleEnabled;
+  }
+
+  setAppSetting(db, "crawlerSchedule", {
+    autoScheduleEnabled: crawlerState.autoScheduleEnabled,
+    intervalMinutes: crawlerState.intervalMinutes
+  });
+
+  applyScheduleTimer();
+  return { ...crawlerState };
+}
+
+export function startBackgroundAutoCrawler(intervalMinutes = 15, enable = false) {
+  return updateCrawlerSchedule({
+    intervalMinutes,
+    autoScheduleEnabled: Boolean(enable)
+  });
+}
+
+export function cancelCrawlJob(jobId = null, customDb = null) {
+  const db = ensureDbMigrated(customDb);
+  const targetId = jobId || crawlerState.currentJobId;
+  if (!targetId) return { cancelled: false, reason: "no_active_job" };
+
+  db.prepare("UPDATE crawl_jobs SET cancel_requested = 1 WHERE job_id = ?").run(targetId);
+  return { cancelled: true, jobId: targetId };
+}
+
+export function getCrawlerHealth(customDb = null) {
+  const db = ensureDbMigrated(customDb);
+  ensureStaticSeedsRegistered(db);
+
+  const seedStats = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS totalSeeds,
+         SUM(CASE WHEN last_success_at IS NOT NULL THEN 1 ELSE 0 END) AS succeededSeeds,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failedSeeds,
+         SUM(CASE WHEN last_success_at IS NULL THEN 1 ELSE 0 END) AS unseenSeeds
+       FROM crawl_seeds`
+    )
+    .get();
+
+  const recentJobs = db
+    .prepare("SELECT * FROM crawl_jobs ORDER BY created_at DESC LIMIT 15")
+    .all()
+    .map((j) => ({
+      jobId: j.job_id,
+      jobType: j.job_type,
+      status: j.status,
+      params: JSON.parse(j.params_json || "{}"),
+      progress: JSON.parse(j.progress_json || "{}"),
+      summary: JSON.parse(j.summary_json || "{}"),
+      errorText: j.error_text,
+      requestCount: j.request_count,
+      cancelRequested: Boolean(j.cancel_requested),
+      startedAt: j.started_at,
+      completedAt: j.completed_at,
+      createdAt: j.created_at
+    }));
+
+  const totalChannelsInDb = db
+    .prepare("SELECT COUNT(*) AS c FROM channels WHERE data_origin != 'demo'")
+    .get().c;
+
+  return {
+    crawlerState,
+    seedStats,
+    recentJobs,
+    countries: GLOBAL_COUNTRIES,
+    totalChannelsInDb
+  };
+}
+
+// ============================================================================
+// MULTI-COUNTRY BATCH CRAWLER & LIVE NICHE SCANNER
+// ============================================================================
+
+export async function crawlMultiCountryBatch(
+  {
+    countries = ["ALL"],
+    keywordsPerCountry = 2,
+    maxChannelsPerKeyword = 5,
+    customKeyword = "",
+    searchProvider = null, // Injectable for deterministic tests
+    enrichmentProvider = null
+  } = {},
+  customDb = null
+) {
+  const db = ensureDbMigrated(customDb);
+  ensureStaticSeedsRegistered(db);
+
+  if (crawlerState.isRunning) {
+    return {
+      alreadyRunning: true,
+      jobId: crawlerState.currentJobId,
+      crawlerState
+    };
+  }
+
+  const jobId = `job_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+  const startedAt = new Date().toISOString();
+  crawlerState.isRunning = true;
+  crawlerState.currentJobId = jobId;
+
+  const targetCountries = GLOBAL_COUNTRIES.filter((c) =>
+    countries.includes("ALL") ? true : countries.includes(c.code)
+  );
+
+  const params = {
+    countries: targetCountries.map((c) => c.code),
+    keywordsPerCountry,
+    maxChannelsPerKeyword,
+    customKeyword
+  };
+
+  db.prepare(`
+    INSERT INTO crawl_jobs (
+      job_id, job_type, status, params_json, progress_json, request_count, started_at, created_at
+    ) VALUES (?, 'multi_country_crawl', 'running', ?, ?, 0, ?, ?)
+  `).run(
+    jobId,
+    JSON.stringify(params),
+    JSON.stringify({ seedsCompleted: 0, channelsUpserted: 0 }),
+    startedAt,
+    startedAt
+  );
+
+  let newChannelsCount = 0;
+  let updatedChannelsCount = 0;
+  let requestCount = 0;
+  let seedsSucceeded = 0;
+  let seedsFailed = 0;
+  const minOutlierSampleSize = Number(
+    getAppSetting(db, "minOutlierSampleSize", DEFAULT_MIN_OUTLIER_SAMPLE_SIZE)
+  );
+  const secrets = loadSecrets();
+
+  try {
+    for (const countryMeta of targetCountries) {
+      // Check if cancellation was requested
+      const jobRow = db
+        .prepare("SELECT cancel_requested FROM crawl_jobs WHERE job_id = ?")
+        .get(jobId);
+      if (jobRow?.cancel_requested) {
+        break;
+      }
+
+      const seedsToRun = selectSeedsForMarket(
+        db,
+        countryMeta.code,
+        keywordsPerCountry,
+        customKeyword
+      );
+
+      for (const seedRow of seedsToRun) {
+        const checkCancel = db
+          .prepare("SELECT cancel_requested FROM crawl_jobs WHERE job_id = ?")
+          .get(jobId);
+        if (checkCancel?.cancel_requested) break;
+
+        const seedKey = seedRow.seed_key;
+        const seedKeyword = seedRow.keyword;
+        const attemptAt = new Date().toISOString();
+        markSeedAttemptStart(db, seedKey, attemptAt);
+
+        try {
+          let rawVideos = [];
+          requestCount += 1;
+
+          if (typeof searchProvider === "function") {
+            rawVideos = await searchProvider({
+              keyword: seedKeyword,
+              lang: countryMeta.lang,
+              countryCode: countryMeta.code
+            });
+          } else {
+            const yt = await getCountryInnertube(countryMeta.lang, countryMeta.code);
+            const search = await yt.search(seedKeyword, { type: "video" });
+            rawVideos = (search?.videos || []).slice(0, maxChannelsPerKeyword * 4);
+          }
+
+          const byChannel = new Map();
+          for (const item of rawVideos) {
+            const parsed = parseInnerTubeSearchItem(item, countryMeta.lang, attemptAt);
+            if (!parsed) continue;
+            if (!byChannel.has(parsed.channelId)) {
+              byChannel.set(parsed.channelId, {
+                channelId: parsed.channelId,
+                title: parsed.channelTitle,
+                handle: parsed.channelHandle,
+                avatarUrl: parsed.avatarUrl,
+                videos: []
+              });
+            }
+            byChannel.get(parsed.channelId).videos.push(parsed.video);
+          }
+
+          let channelsForSeed = 0;
+          for (const [, chGroup] of byChannel.entries()) {
+            const existingBefore = db
+              .prepare("SELECT id FROM channels WHERE id = ?")
+              .get(chGroup.channelId);
+
+            // Optional enrichment via YouTube Data API v3 or custom enrichmentProvider
+            let enriched = null;
+            if (typeof enrichmentProvider === "function") {
+              enriched = await enrichmentProvider(chGroup.channelId);
+            } else if (secrets.youtubeApiKey) {
+              requestCount += 1;
+              enriched = await enrichChannelViaYouTubeDataApi(
+                chGroup.channelId,
+                secrets.youtubeApiKey
+              );
+            }
+
+            const combinedVideos = [
+              ...chGroup.videos,
+              ...(enriched?.videos || [])
+            ];
+
+            const upserted = upsertChannelAndVideos(db, {
+              channelId: chGroup.channelId,
+              handle: enriched?.handle || chGroup.handle,
+              title: enriched?.title || chGroup.title,
+              description: enriched?.description || "",
+              avatarUrl: enriched?.avatarUrl || chGroup.avatarUrl,
+              observedSubscribers: enriched?.observedSubscribers ?? null,
+              observedTotalViews: enriched?.observedTotalViews ?? null,
+              observedVideoCount: enriched?.observedVideoCount ?? null,
+              // CRITICAL: Never assign countryMeta.code as channelCountry! Only use observedChannelCountry!
+              observedChannelCountry: enriched?.observedChannelCountry ?? null,
+              observedJoinedAt: enriched?.observedJoinedAt ?? null,
+              observedContentLanguage: enriched?.observedContentLanguage ?? null,
+              discoveryMarket: {
+                countryCode: countryMeta.code,
+                languageCode: countryMeta.lang,
+                seedKeyword,
+                source: enriched ? "youtube_data_api_v3" : "youtube_innertube_search"
+              },
+              videos: combinedVideos,
+              dataOrigin: "observed",
+              minOutlierSampleSize,
+              recordSnapshot: true,
+              collectedAt: attemptAt
+            });
+
+            // Multilingual Snowball seed expansion from verified outlier videos
+            for (const v of upserted.videos || []) {
+              if (v.outlierStatus === "derived" && v.outlierRatio >= 3.0) {
+                const phrase = extractSnowballPhrase(v.title, countryMeta.lang);
+                if (phrase) {
+                  db.prepare(`
+                    INSERT OR IGNORE INTO crawl_seeds (
+                      seed_key, market_code, language_code, keyword, origin, status, created_at
+                    ) VALUES (?, ?, ?, ?, 'snowball', 'pending', ?)
+                  `).run(
+                    `${countryMeta.code}:${phrase}`,
+                    countryMeta.code,
+                    countryMeta.lang,
+                    phrase,
+                    attemptAt
+                  );
+                }
+              }
+            }
+
+            if (existingBefore) updatedChannelsCount += 1;
+            else newChannelsCount += 1;
+
+            channelsForSeed += 1;
+            if (channelsForSeed >= maxChannelsPerKeyword) break;
+          }
+
+          // Only mark seed as succeeded AFTER all DB transactions for this seed complete!
+          markSeedSuccess(db, seedKey, channelsForSeed, new Date().toISOString());
+          seedsSucceeded += 1;
+        } catch (seedErr) {
+          markSeedFailure(db, seedKey, seedErr?.message || "seed_search_failed");
+          seedsFailed += 1;
+        }
+      }
+    }
+
+    const completedAt = new Date().toISOString();
+    const jobRowAfter = db
+      .prepare("SELECT cancel_requested FROM crawl_jobs WHERE job_id = ?")
+      .get(jobId);
+
+    const finalStatus = jobRowAfter?.cancel_requested
+      ? "cancelled"
+      : seedsFailed > 0 && seedsSucceeded === 0
+        ? "failed"
+        : seedsFailed > 0
+          ? "partial"
+          : "succeeded";
+
+    const totalChannelsInDb = db
+      .prepare("SELECT COUNT(*) AS c FROM channels WHERE data_origin != 'demo'")
+      .get().c;
+
+    const summary = {
+      jobId,
+      status: finalStatus,
+      startedAt,
+      completedAt,
+      countriesCrawled: targetCountries.map((c) => c.code),
+      seedsSucceeded,
+      seedsFailed,
+      requestCount,
+      newChannelsCount,
+      updatedChannelsCount,
+      totalChannelsInDb
+    };
+
+    db.prepare(`
+      UPDATE crawl_jobs SET
+        status = ?,
+        summary_json = ?,
+        request_count = ?,
+        completed_at = ?
+      WHERE job_id = ?
+    `).run(finalStatus, JSON.stringify(summary), requestCount, completedAt, jobId);
+
+    crawlerState.lastRunAt = completedAt;
+    crawlerState.totalCrawlsRun += 1;
+    crawlerState.lastSummary = summary;
+
+    return summary;
+  } catch (err) {
+    const completedAt = new Date().toISOString();
+    db.prepare(`
+      UPDATE crawl_jobs SET
+        status = 'failed',
+        error_text = ?,
+        request_count = ?,
+        completed_at = ?
+      WHERE job_id = ?
+    `).run(err?.message || "batch_crawl_failed", requestCount, completedAt, jobId);
+    throw err;
+  } finally {
+    crawlerState.isRunning = false;
+    crawlerState.currentJobId = null;
+  }
+}
+
+/**
+ * Live Niche Scanner for a specific keyword & market
+ */
+export async function scanYouTubeNicheLive(
+  keyword,
+  maxResults = 10,
+  { country = "US", searchProvider = null, enrichmentProvider = null } = {},
+  customDb = null
+) {
+  const db = ensureDbMigrated(customDb);
+  const cleanKw = String(keyword || "").trim();
+  if (!cleanKw) {
+    const err = new Error("Từ khóa tìm kiếm (keyword) không được để trống.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const targetCountry =
+    GLOBAL_COUNTRIES.find((c) => c.code === country)?.code || "US";
+
+  const summary = await crawlMultiCountryBatch(
+    {
+      countries: [targetCountry],
+      keywordsPerCountry: 1,
+      maxChannelsPerKeyword: Math.min(25, Math.max(1, Number(maxResults) || 10)),
+      customKeyword: cleanKw,
+      searchProvider,
+      enrichmentProvider
+    },
+    db
+  );
+
+  const matchedRows = db
+    .prepare(
+      `SELECT * FROM channels
+       WHERE discovery_keyword = ? OR LOWER(title) LIKE ?
+       ORDER BY updated_at DESC
+       LIMIT ?`
+    )
+    .all(cleanKw, `%${cleanKw.toLowerCase()}%`, maxResults);
+
+  return {
+    jobId: summary.jobId,
+    status: summary.status,
+    source: "youtube-innertube-live",
+    keyword: cleanKw,
+    market: targetCountry,
+    discoveredCount: (summary.newChannelsCount || 0) + (summary.updatedChannelsCount || 0),
+    summary,
+    channelIds: matchedRows.map((r) => r.id)
+  };
 }

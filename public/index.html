@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nexlev Studio — YouTube Niche Finder, Outlier Radar & Creator Intelligence</title>
+  <title>Nexlev Team Studio — Nội Bộ Nghiên Cứu Ngách, Outlier &amp; Giao Brief Sản Xuất</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -13,119 +13,141 @@
       <div class="brand">
         <div class="brand-logo">NX</div>
         <div>
-          <div class="brand-title">NEXLEV <span>STUDIO</span></div>
-          <div class="brand-sub">InnerTube + AI Engine v2.6</div>
+          <div class="brand-title">NEXLEV <span>TEAM</span></div>
+          <div class="brand-sub">Honest Data + SQLite WAL v2.0</div>
+        </div>
+      </div>
+
+      <!-- Current Logged-in Employee Card -->
+      <div class="sidebar-card" style="margin-bottom:0.85rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+          <div>
+            <div class="sidebar-card-title" id="auth-user-display">👤 Đang kiểm tra...</div>
+            <div class="ch-meta" id="auth-user-role">Quyền: —</div>
+          </div>
+          <button type="button" id="btn-open-login" class="btn-ghost" style="padding:0.35rem 0.6rem;font-size:0.78rem;">
+            🔐 Đổi TK
+          </button>
         </div>
       </div>
 
       <nav class="nav-list" aria-label="Main Navigation">
         <button class="nav-btn active" data-tab="niche-finder">
           <span class="nav-icon">🔍</span>
-          <span>Niche Finder (21 Filters)</span>
-          <span class="nav-badge" id="badge-channels">9</span>
+          <span>Tìm Kênh &amp; Ngách</span>
+          <span class="nav-badge" id="badge-channels">0</span>
         </button>
         <button class="nav-btn" data-tab="outliers">
           <span class="nav-icon">🔥</span>
-          <span>Viral Outliers Radar</span>
-          <span class="nav-badge hot" id="badge-outliers">12</span>
-        </button>
-        <button class="nav-btn" data-tab="tracker">
-          <span class="nav-icon">📡</span>
-          <span>48h Channel Tracker</span>
-          <span class="nav-badge" id="badge-tracker">6</span>
-        </button>
-        <button class="nav-btn" data-tab="thumbnail-lab">
-          <span class="nav-icon">🎨</span>
-          <span>Thumbnail &amp; Title Lab</span>
+          <span>Outlier Video Radar</span>
+          <span class="nav-badge hot" id="badge-outliers">0</span>
         </button>
         <button class="nav-btn" data-tab="swipe-file">
           <span class="nav-icon">🗂️</span>
-          <span>Swipe File (Ý Tưởng)</span>
-          <span class="nav-badge" id="badge-swipe">3</span>
+          <span>Thư Viện Ý Tưởng &amp; Giao Việc</span>
+          <span class="nav-badge" id="badge-swipe">0</span>
+        </button>
+        <button class="nav-btn" data-tab="tracker">
+          <span class="nav-icon">📡</span>
+          <span>Watchlist Chung &amp; Lịch Sử</span>
+          <span class="nav-badge" id="badge-tracker">0</span>
+        </button>
+        <button class="nav-btn" data-tab="thumbnail-lab">
+          <span class="nav-icon">🎨</span>
+          <span>Kiểm Thử Tiêu Đề &amp; Thumb</span>
         </button>
         <button class="nav-btn" data-tab="settings">
           <span class="nav-icon">⚙️</span>
-          <span>API Keys &amp; MCP Status</span>
+          <span>Quản Lý Team, Crawler &amp; Keys</span>
         </button>
       </nav>
 
       <div class="sidebar-card">
-        <div class="sidebar-card-title">⚡ Chế độ Zero-Quota Active</div>
-        <p>Đang chạy trực tiếp qua <strong>YouTube InnerTube (`youtubei.js`)</strong> — không tốn quota API key.</p>
+        <div class="sidebar-card-title">🛡️ Nguyên Tắc Dữ Liệu Trung Thực</div>
+        <p>Tự động phân biệt <strong>Quan sát trực tiếp</strong>, <strong>Tính toán (n&ge;3)</strong>, <strong>Ước lượng kịch bản</strong> và <strong>Unknown</strong>.</p>
         <div class="engine-pills">
-          <span class="pill ok" id="pill-innertube">InnerTube: Ready</span>
-          <span class="pill" id="pill-mcp">MCP: Active</span>
+          <span class="pill ok" id="pill-origin-summary">SQLite WAL: Ready</span>
+          <span class="pill" id="pill-mcp">MCP + Ext: Sync</span>
         </div>
       </div>
     </aside>
 
     <!-- Main Content Area -->
     <main class="main-content">
+      <!-- Notification Banner -->
+      <div id="global-toast" style="display:none;margin-bottom:0.85rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(16,185,129,0.16);border:1px solid var(--accent-emerald);color:#e2e8f0;font-size:0.9rem;"></div>
+
       <!-- Top Header Bar with Live YouTube Scanner & Multi-Country Harvester -->
       <header class="topbar">
         <div class="scanner-box">
           <span class="scanner-icon">🌐</span>
           <select id="live-scan-country" style="background:var(--bg-base);border:1px solid var(--border-subtle);color:var(--text-main);padding:0.62rem;border-radius:10px;font-size:0.85rem;">
-            <option value="ALL">🌍 Đa Quốc Gia (18 Thị Trường Toàn Cầu)</option>
-            <option value="US">🇺🇸 United States</option>
-            <option value="GB">🇬🇧 United Kingdom</option>
-            <option value="CA">🇨🇦 Canada</option>
-            <option value="AU">🇦🇺 Australia</option>
-            <option value="CH">🇨🇭 Switzerland (Top CPM)</option>
-            <option value="DE">🇩🇪 Germany</option>
-            <option value="NL">🇳🇱 Netherlands</option>
-            <option value="SE">🇸🇪 Sweden &amp; Nordics</option>
-            <option value="FR">🇫🇷 France</option>
-            <option value="IT">🇮🇹 Italy</option>
-            <option value="ES">🇪🇸 Spain &amp; LatAm</option>
-            <option value="JP">🇯🇵 Japan</option>
-            <option value="KR">🇰🇷 South Korea</option>
-            <option value="TW">🇹🇼 Taiwan &amp; HK</option>
-            <option value="VN">🇻🇳 Vietnam</option>
-            <option value="BR">🇧🇷 Brazil</option>
-            <option value="MX">🇲🇽 Mexico</option>
-            <option value="IN">🇮🇳 India</option>
+            <option value="US">🇺🇸 United States (EN)</option>
+            <option value="ALL">🌍 Quét Đa Thị Trường (US/GB/DE/JP/KR/VN/ES)</option>
+            <option value="GB">🇬🇧 United Kingdom (EN)</option>
+            <option value="CA">🇨🇦 Canada (EN)</option>
+            <option value="AU">🇦🇺 Australia (EN)</option>
+            <option value="CH">🇨🇭 Switzerland (DE)</option>
+            <option value="DE">🇩🇪 Germany (DE)</option>
+            <option value="NL">🇳🇱 Netherlands (NL)</option>
+            <option value="SE">🇸🇪 Sweden &amp; Nordics (EN)</option>
+            <option value="FR">🇫🇷 France (FR)</option>
+            <option value="IT">🇮🇹 Italy (IT)</option>
+            <option value="ES">🇪🇸 Spain &amp; LatAm (ES)</option>
+            <option value="JP">🇯🇵 Japan (JA)</option>
+            <option value="KR">🇰🇷 South Korea (KO)</option>
+            <option value="TW">🇹🇼 Taiwan &amp; HK (ZH)</option>
+            <option value="VN">🇻🇳 Vietnam (VI)</option>
+            <option value="BR">🇧🇷 Brazil (PT)</option>
+            <option value="MX">🇲🇽 Mexico (ES)</option>
+            <option value="IN">🇮🇳 India (EN)</option>
           </select>
           <input
             type="text"
             id="live-scan-input"
-            placeholder="Nhập từ khóa ngách để quét TRỰC TIẾP từ YouTube (hoặc để trống rồi bấm Quét Đa Quốc Gia)..."
+            placeholder="Nhập từ khóa ngách để thu thập dữ liệu có nguồn từ YouTube..."
           />
           <button id="btn-live-scan" class="btn-primary">
             ⚡ Quét Từ Khóa Live
           </button>
           <button id="btn-global-crawl" class="btn-ghost" style="border-color:var(--accent-emerald);color:#6ee7b7;">
-            🌍 Quét Tự Động 18 Quốc Gia
+            🌍 Quét Hạt Giống Đa Thị Trường
+          </button>
+          <button id="btn-open-bulk-import" class="btn-ghost">
+            📥 Nhập Hàng Loạt (URL/@Handle)
           </button>
         </div>
         <div class="topbar-stats">
           <div class="stat-chip">
-            <span class="stat-label">Kênh Đã Index</span>
-            <strong id="top-stat-channels">9</strong>
+            <span class="stat-label">Kênh Nghiên Cứu</span>
+            <strong id="top-stat-channels">0</strong>
           </div>
           <div class="stat-chip">
-            <span class="stat-label">Outlier Đỉnh Nhất</span>
-            <strong class="text-emerald" id="top-stat-outlier">11.2x 🔥</strong>
+            <span class="stat-label">Outlier Đủ Mẫu (n&ge;3)</span>
+            <strong class="text-emerald" id="top-stat-outlier">—</strong>
           </div>
         </div>
       </header>
 
-      <!-- TAB 1: NICHE FINDER (21 FILTERS) -->
+      <!-- TAB 1: NICHE FINDER & CHANNEL DISCOVERY -->
       <section class="tab-panel active" id="tab-niche-finder">
         <div class="section-header">
           <div>
-            <h1>Niche Finder &amp; Channel Discovery</h1>
-            <p>Bộ lọc 21 tiêu chí chuẩn Nexlev: phát hiện kênh Faceless mới lập, ít video nhưng có điểm Outlier &amp; RPM đột biến.</p>
+            <h1>Nghiên Cứu Kênh &amp; Ngách (Có Nguồn &amp; Độ Chắc Chắn)</h1>
+            <p>Tách biệt rõ thị trường tìm kiếm (Discovery Market) với quốc gia kênh thực tế, ẩn dữ liệu Demo mặc định và đánh dấu rõ mẫu chưa đủ (&lt;3 video).</p>
           </div>
-          <div class="template-bar" id="filter-templates-bar">
-            <!-- Populated dynamically -->
+          <div class="inline-controls">
+            <a href="/api/v1/export?target=channels&amp;format=csv" class="btn-ghost" style="text-decoration:none;">⬇️ Xuất CSV</a>
+            <a href="/api/v1/export?target=channels&amp;format=json" class="btn-ghost" style="text-decoration:none;">⬇️ Xuất JSON</a>
           </div>
         </div>
 
-        <!-- 21 Advanced Filters Panel -->
+        <div class="template-bar" id="filter-templates-bar" style="margin-bottom:0.85rem;"></div>
+
+        <!-- Filters Panel -->
         <details class="filters-card" open>
           <summary class="filters-summary">
-            <span>🎛️ Bộ Lọc Chuyên Sâu (21 Nexlev Filters)</span>
+            <span>🎛️ Bộ Lọc Chuyên Sâu &amp; Bộ Lọc Chất Lượng Dữ Liệu</span>
             <div class="filter-actions">
               <button type="button" id="btn-reset-filters" class="btn-ghost">Đặt lại bộ lọc</button>
             </div>
@@ -133,19 +155,38 @@
 
           <form id="niche-filters-form" class="filters-grid">
             <div class="filter-field">
-              <label for="f-query">1. Từ khóa / Tên kênh</label>
-              <input type="text" id="f-query" name="query" placeholder="Tìm tên kênh, handle, chủ đề..." />
+              <label for="f-query">1. Từ khóa / Tên kênh / Handle</label>
+              <input type="text" id="f-query" name="query" placeholder="Tìm tên kênh, @handle, từ khóa hạt giống..." />
             </div>
 
             <div class="filter-field">
-              <label for="f-niche">2. Ngách (Niche Category)</label>
+              <label for="f-dataOrigin">2. Nguồn gốc dữ liệu (Data Quality)</label>
+              <select id="f-dataOrigin" name="dataOrigin">
+                <option value="all">Tất cả dữ liệu nghiên cứu (Observed + Legacy)</option>
+                <option value="observed">Chỉ dữ liệu đã xác minh nguồn (Observed)</option>
+                <option value="legacy_unverified">Dữ liệu cũ chưa xác minh đầy đủ (Legacy)</option>
+                <option value="demo">Chỉ dữ liệu mẫu minh họa (Demo Fixtures)</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label for="f-outlierSampleFilter">3. Độ tin cậy mẫu Outlier</label>
+              <select id="f-outlierSampleFilter" name="outlierSampleFilter">
+                <option value="all">Tất cả (Gồm cả kênh chưa đủ mẫu)</option>
+                <option value="sufficient">Đủ mẫu chuẩn (n &ge; 3 video cùng định dạng)</option>
+                <option value="insufficient">Chưa đủ mẫu (&lt; 3 video — cần quét thêm)</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label for="f-niche">4. Ngách (Heuristic Niche)</label>
               <select id="f-niche" name="niche">
                 <option value="all">Tất cả ngách</option>
               </select>
             </div>
 
             <div class="filter-field">
-              <label for="f-format">3. Định dạng (Video Format)</label>
+              <label for="f-format">5. Định dạng (Format)</label>
               <select id="f-format" name="format">
                 <option value="all">Tất cả định dạng</option>
                 <option value="documentary">Documentary (Tài liệu)</option>
@@ -156,119 +197,76 @@
             </div>
 
             <div class="filter-field">
-              <label for="f-contentType">4. Loại Video (Long vs Shorts)</label>
+              <label for="f-contentType">6. Phân loại thời lượng Video</label>
               <select id="f-contentType" name="contentType">
                 <option value="all">Tất cả</option>
-                <option value="long">Long-form (&gt; 8 phút)</option>
-                <option value="shorts">YouTube Shorts (&lt; 60s)</option>
+                <option value="long">Long-form (&gt; 3 phút)</option>
+                <option value="shorts">Shorts (&le; 60s)</option>
               </select>
             </div>
 
             <div class="filter-field">
-              <label for="f-isFaceless">5. Kênh Faceless (Ẩn mặt)</label>
+              <label for="f-isFaceless">7. Nhãn Heuristic Faceless</label>
               <select id="f-isFaceless" name="isFaceless">
-                <option value="all">Tất cả</option>
-                <option value="true" selected>Chỉ kênh Faceless 🎭</option>
-                <option value="false">Có lộ mặt (On-Camera)</option>
+                <option value="all" selected>Tất cả (Gồm cả Unknown)</option>
+                <option value="true">Có tín hiệu Faceless (Likely Faceless)</option>
+                <option value="false">Có tín hiệu lộ mặt (Likely On-Camera)</option>
               </select>
             </div>
 
             <div class="filter-field">
-              <label for="f-minFacelessConfidence">6. Độ tin cậy Faceless tối thiểu</label>
-              <select id="f-minFacelessConfidence" name="minFacelessConfidence">
-                <option value="0">Mọi mức độ (0%+)</option>
-                <option value="0.8">Cao (&gt;= 80%)</option>
-                <option value="0.9">Rất cao (&gt;= 90%)</option>
-                <option value="0.95">Tuyệt đối (&gt;= 95%)</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-aiContent">7. Mức độ dùng AI (AI Detector)</label>
-              <select id="f-aiContent" name="aiContent">
-                <option value="all">Tất cả</option>
-                <option value="ai">Có hỗ trợ AI (Voice/Visuals)</option>
-                <option value="human">Sản xuất truyền thống / 3D</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-monetizedOnly">8. Trạng thái Bật Kiếm Tiền</label>
-              <select id="f-monetizedOnly" name="monetizedOnly">
-                <option value="all">Tất cả</option>
-                <option value="true">Đã bật kiếm tiền (YPP ✅)</option>
-                <option value="false">Chưa bật kiếm tiền</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minOutlierScore">9. Điểm Outlier Tối Thiểu</label>
+              <label for="f-minOutlierScore">8. Điểm Outlier Tối Thiểu</label>
               <select id="f-minOutlierScore" name="minOutlierScore">
-                <option value="0">0 — Mọi kênh</option>
-                <option value="1">1 — Above Avg (&gt;= 1.5x)</option>
-                <option value="2">2 — Strong Outlier (&gt;= 3.0x)</option>
-                <option value="3">3 — Exceptional (&gt;= 5.0x 🔥)</option>
+                <option value="0">0 — Mọi mức</option>
+                <option value="1">1 — Above Avg (&ge; 1.5x)</option>
+                <option value="2">2 — Strong Outlier (&ge; 3.0x)</option>
+                <option value="3">3 — Exceptional (&ge; 5.0x 🔥)</option>
               </select>
             </div>
 
             <div class="filter-field">
-              <label for="f-minSubscribers">10. Subscribers Tối Thiểu</label>
-              <input type="number" id="f-minSubscribers" name="minSubscribers" placeholder="VD: 5000" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-maxSubscribers">11. Subscribers Tối Đa (Tìm kênh nhỏ)</label>
-              <input type="number" id="f-maxSubscribers" name="maxSubscribers" placeholder="VD: 100000" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minAvgViews">12. View Trung Bình / Video Tối Thiểu</label>
+              <label for="f-minAvgViews">9. Views TB Mẫu Quan Sát Tối Thiểu</label>
               <input type="number" id="f-minAvgViews" name="minAvgViews" placeholder="VD: 50000" min="0" />
             </div>
 
             <div class="filter-field">
-              <label for="f-minTotalViews">13. Tổng View Kênh Tối Thiểu</label>
-              <input type="number" id="f-minTotalViews" name="minTotalViews" placeholder="VD: 1000000" min="0" />
+              <label for="f-minSubscribers">10. Subscribers Tối Thiểu (Chỉ kênh đã biết Subs)</label>
+              <input type="number" id="f-minSubscribers" name="minSubscribers" placeholder="VD: 5000" min="0" />
             </div>
 
             <div class="filter-field">
-              <label for="f-maxVideoCount">14. Số Video Tối Đa (Kênh ít video)</label>
-              <input type="number" id="f-maxVideoCount" name="maxVideoCount" placeholder="VD: 35" min="0" />
+              <label for="f-maxSubscribers">11. Subscribers Tối Đa (Chỉ kênh đã biết Subs)</label>
+              <input type="number" id="f-maxSubscribers" name="maxSubscribers" placeholder="VD: 100000" min="0" />
             </div>
 
             <div class="filter-field">
-              <label for="f-minAvgDurationMinutes">15. Thời lượng TB tối thiểu (Phút)</label>
-              <input type="number" id="f-minAvgDurationMinutes" name="minAvgDurationMinutes" placeholder="VD: 8 (Mid-roll)" min="0" />
+              <label for="f-maxVideoCount">12. Số Video Quan Sát Tối Đa</label>
+              <input type="number" id="f-maxVideoCount" name="maxVideoCount" placeholder="VD: 50" min="0" />
             </div>
 
             <div class="filter-field">
-              <label for="f-minRpm">16. RPM Ước Tính Tối Thiểu ($)</label>
-              <input type="number" id="f-minRpm" name="minRpm" placeholder="VD: 8.5" step="0.5" min="0" />
+              <label for="f-minAvgDurationMinutes">13. Thời lượng TB tối thiểu (Phút)</label>
+              <input type="number" id="f-minAvgDurationMinutes" name="minAvgDurationMinutes" placeholder="VD: 8" min="0" />
             </div>
 
             <div class="filter-field">
-              <label for="f-minMonthlyRevenue">17. Doanh Thu Tháng Tối Thiểu ($)</label>
-              <input type="number" id="f-minMonthlyRevenue" name="minMonthlyRevenue" placeholder="VD: 10000" min="0" />
+              <label for="f-minRpm">14. Kịch bản RPM Tối Thiểu ($)</label>
+              <input type="number" id="f-minRpm" name="minRpm" placeholder="VD: 6.0" step="0.5" min="0" />
             </div>
 
             <div class="filter-field">
-              <label for="f-maxAgeMonths">18. Tuổi Kênh Tối Đa (Tháng)</label>
-              <input type="number" id="f-maxAgeMonths" name="maxAgeMonths" placeholder="VD: 6 (Mới lập)" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-country">19. Quốc Gia Khán Giả Chính</label>
+              <label for="f-country">15. Thị trường phát hiện / Quốc gia kênh</label>
               <select id="f-country" name="country">
-                <option value="all">🌍 Tất cả 18 quốc gia</option>
-                <option value="US">🇺🇸 United States (Tier 1)</option>
-                <option value="GB">🇬🇧 United Kingdom (Tier 1)</option>
-                <option value="CA">🇨🇦 Canada (Tier 1)</option>
-                <option value="AU">🇦🇺 Australia (Tier 1)</option>
-                <option value="CH">🇨🇭 Switzerland (Tier 1)</option>
-                <option value="DE">🇩🇪 Germany (Tier 1)</option>
-                <option value="NL">🇳🇱 Netherlands (Tier 1)</option>
-                <option value="SE">🇸🇪 Sweden &amp; Nordics (Tier 1)</option>
-                <option value="FR">🇫🇷 France (Tier 1)</option>
+                <option value="all">🌍 Tất cả 18 thị trường</option>
+                <option value="US">🇺🇸 United States</option>
+                <option value="GB">🇬🇧 United Kingdom</option>
+                <option value="CA">🇨🇦 Canada</option>
+                <option value="AU">🇦🇺 Australia</option>
+                <option value="CH">🇨🇭 Switzerland</option>
+                <option value="DE">🇩🇪 Germany</option>
+                <option value="NL">🇳🇱 Netherlands</option>
+                <option value="SE">🇸🇪 Sweden</option>
+                <option value="FR">🇫🇷 France</option>
                 <option value="IT">🇮🇹 Italy</option>
                 <option value="ES">🇪🇸 Spain &amp; LatAm</option>
                 <option value="JP">🇯🇵 Japan</option>
@@ -282,45 +280,50 @@
             </div>
 
             <div class="filter-field">
-              <label for="f-excludeKids">20. Lọc Nội Dung Trẻ Em (Kids)</label>
-              <select id="f-excludeKids" name="excludeKids">
-                <option value="true">Loại bỏ kênh Made for Kids</option>
-                <option value="false">Hiện tất cả</option>
+              <label for="f-includeDemo">16. Hiển thị dữ liệu Demo</label>
+              <select id="f-includeDemo" name="includeDemo">
+                <option value="false" selected>Ẩn dữ liệu Demo (Chỉ hiện nghiên cứu thật)</option>
+                <option value="true">Hiện kèm 9 kênh Demo minh họa</option>
               </select>
             </div>
 
             <div class="filter-field">
-              <label for="f-sortBy">21. Sắp Xếp Theo</label>
+              <label for="f-sortBy">17. Sắp Xếp Theo</label>
               <select id="f-sortBy" name="sortBy">
-                <option value="outlier">🔥 Điểm Outlier Cao Nhất</option>
-                <option value="revenue">💰 Doanh Thu Tháng Cao Nhất</option>
-                <option value="rpm">💎 RPM Cao Nhất</option>
-                <option value="viewSubRatio">🚀 Tỷ Lệ Views / Subscribers</option>
-                <option value="growth">📈 Tốc Độ Tăng Trưởng 30d</option>
-                <option value="newest">🌱 Kênh Mới Nhất</option>
+                <option value="outlier">🔥 Tỷ Lệ Outlier Cao Nhất (Ưu tiên đủ mẫu)</option>
+                <option value="avgViews">👁️ Views Trung Bình Mẫu Cao Nhất</option>
+                <option value="subscribers">👥 Subscribers Đã Xác Minh Cao Nhất</option>
+                <option value="rpm">💎 Kịch Bản RPM Cao Nhất</option>
+                <option value="newest">🌱 Video Quan Sát Mới Nhất</option>
               </select>
             </div>
           </form>
         </details>
 
-        <!-- Responsive Semantic Table (Following modern-web-guidance responsive-table) -->
+        <!-- Pagination Bar -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:0.75rem 0;">
+          <div class="ch-meta" id="channels-pagination-info">Đang tải dữ liệu...</div>
+          <div class="inline-controls">
+            <button type="button" id="btn-prev-page" class="btn-ghost" disabled>&larr; Trang trước</button>
+            <button type="button" id="btn-next-page" class="btn-ghost" disabled>Trang sau &rarr;</button>
+          </div>
+        </div>
+
         <div class="table-wrapper">
           <table id="channels-table">
             <thead>
               <tr>
-                <th>Kênh &amp; Ngách</th>
-                <th>Chỉ Số Faceless &amp; YPP</th>
-                <th>Subscribers &amp; Videos</th>
-                <th>TB Views vs Median</th>
-                <th>Outlier Đỉnh</th>
-                <th>RPM &amp; Doanh Thu/Tháng</th>
-                <th>View 48h Realtime</th>
-                <th>Thao Tác</th>
+                <th>Kênh &amp; Nguồn Dữ Liệu</th>
+                <th>Thị Trường Phát Hiện vs Quốc Gia Kênh</th>
+                <th>Nhãn Heuristic &amp; YPP</th>
+                <th>Subscribers &amp; Mẫu Video</th>
+                <th>Views TB &amp; Median Mẫu</th>
+                <th>Outlier Baseline (Cùng Kênh)</th>
+                <th>Kịch Bản RPM (Ước Lượng)</th>
+                <th>Thao Tác Team</th>
               </tr>
             </thead>
-            <tbody id="channels-tbody">
-              <!-- Populated dynamically -->
-            </tbody>
+            <tbody id="channels-tbody"></tbody>
           </table>
         </div>
       </section>
@@ -329,65 +332,92 @@
       <section class="tab-panel" id="tab-outliers">
         <div class="section-header">
           <div>
-            <h1>🔥 Viral Outliers Radar (Video Nổ View Trên Kênh Nhỏ)</h1>
-            <p>Phát hiện các video có lượng người xem gấp 3x–12x mức trung vị của kênh — mỏ vàng để nhân bản chủ đề &amp; cấu trúc tiêu đề.</p>
+            <h1>🔥 Viral Outliers Radar (Đã Kiểm Chứng Cùng Kênh n &ge; 3)</h1>
+            <p>Chỉ hiển thị mặc định các video có đủ mẫu baseline cùng định dạng trên chính kênh đó (tránh báo hiệu giả từ kênh chỉ có 1 video).</p>
           </div>
           <div class="inline-controls">
             <select id="outlier-days-filter">
-              <option value="30">Trong 30 ngày qua</option>
-              <option value="60">Trong 60 ngày qua</option>
-              <option value="90" selected>Trong 90 ngày qua</option>
-              <option value="365">Tất cả thời gian</option>
+              <option value="0" selected>Mọi thời điểm đăng</option>
+              <option value="30">Trong 30 ngày qua (Có ngày đăng rõ)</option>
+              <option value="90">Trong 90 ngày qua (Có ngày đăng rõ)</option>
+              <option value="365">Trong 365 ngày qua</option>
             </select>
             <select id="outlier-sub-filter">
-              <option value="0">Mọi quy mô kênh</option>
-              <option value="50000">Kênh nhỏ (&lt; 50K Subs)</option>
-              <option value="100000">Kênh vừa (&lt; 100K Subs)</option>
+              <option value="0" selected>Mọi quy mô kênh (Gồm cả kênh chưa rõ Subs)</option>
+              <option value="50000">Kênh đã xác minh &lt; 50K Subs</option>
+              <option value="100000">Kênh đã xác minh &lt; 100K Subs</option>
+            </select>
+            <select id="outlier-sample-toggle">
+              <option value="false" selected>Chỉ hiện video đủ mẫu (n &ge; 3)</option>
+              <option value="true">Hiện cả video chưa đủ mẫu (Insufficient Data)</option>
             </select>
           </div>
         </div>
 
-        <div class="outlier-cards-grid" id="outliers-grid">
-          <!-- Populated dynamically -->
-        </div>
+        <div class="outlier-cards-grid" id="outliers-grid"></div>
       </section>
 
-      <!-- TAB 3: 48H REALTIME CHANNEL TRACKER -->
+      <!-- TAB 3: SHARED IDEA LIBRARY & 6-STAGE WORKFLOW -->
+      <section class="tab-panel" id="tab-swipe-file">
+        <div class="section-header">
+          <div>
+            <h1>🗂️ Thư Viện Ý Tưởng Chung &amp; Quy Trình Sản Xuất (6 Bước)</h1>
+            <p>Quy trình chuẩn nội bộ: <strong>1. Phát hiện &rarr; 2. Duyệt &rarr; 3. Brief &rarr; 4. Giao việc &rarr; 5. Đã đăng &rarr; 6. Đánh giá</strong>. Mỗi công việc có người phụ trách, hạn chót (deadline), ghi chú và link kết quả.</p>
+          </div>
+          <div class="inline-controls">
+            <select id="swipe-stage-filter">
+              <option value="all">Tất cả bước quy trình (6 bước)</option>
+              <option value="discovered">1. Phát hiện (Discovered)</option>
+              <option value="approved">2. Duyệt (Approved)</option>
+              <option value="briefing">3. Brief (Briefing)</option>
+              <option value="assigned">4. Giao việc (Assigned)</option>
+              <option value="published">5. Đã đăng (Published)</option>
+              <option value="review">6. Đánh giá (Review)</option>
+            </select>
+            <select id="swipe-assignee-filter">
+              <option value="all">Mọi người phụ trách</option>
+            </select>
+            <button type="button" id="btn-new-idea" class="btn-primary">+ Tạo Ý Tưởng / Việc Mới</button>
+            <a href="/api/v1/export?target=swipe&amp;format=csv" class="btn-ghost" style="text-decoration:none;">⬇️ Xuất CSV</a>
+          </div>
+        </div>
+        <div class="swipe-grid" id="swipe-grid"></div>
+      </section>
+
+      <!-- TAB 4: SHARED WATCHLIST & REAL SNAPSHOT TRACKER -->
       <section class="tab-panel" id="tab-tracker">
         <div class="section-header">
           <div>
-            <h1>📡 Realtime Channel Tracker (Biểu Đồ View 48 Giờ)</h1>
-            <p>Theo dõi nhịp độ tăng trưởng view từng giờ trong 48h gần nhất của các kênh đối thủ bạn đang ghim.</p>
+            <h1>📡 Watchlist Kênh Chung &amp; Theo Dõi Snapshot Thực Tế</h1>
+            <p>Đã loại bỏ biểu đồ 48h giả lập hàm sin. Tốc độ tăng trưởng chỉ được tính khi hệ thống thu thập được tối thiểu <strong>2 snapshot thực tế</strong> ở các thời điểm khác nhau.</p>
           </div>
         </div>
-        <div class="tracker-grid" id="tracker-grid">
-          <!-- Populated dynamically -->
-        </div>
+        <div class="tracker-grid" id="tracker-grid"></div>
       </section>
 
-      <!-- TAB 4: THUMBNAIL & TITLE TESTER LAB -->
+      <!-- TAB 5: THUMBNAIL & TITLE TESTER LAB -->
       <section class="tab-panel" id="tab-thumbnail-lab">
         <div class="section-header">
           <div>
-            <h1>🎨 Thumbnail &amp; Title Tester (Mô Phỏng Trang Chủ YouTube + AI CTR Audit)</h1>
-            <p>Chèn thử Thumbnail và Tiêu đề của bạn vào giữa các video triệu view trên giao diện YouTube để kiểm tra độ nổi bật thị giác và chấm điểm CTR.</p>
+            <h1>🎨 Kiểm Thử Tiêu Đề &amp; Preview Trên Lưới YouTube</h1>
+            <p>Điểm số đánh giá trung thực cấu trúc văn bản tiêu đề (Title CTR Readiness). Không cộng điểm ảo cho URL ảnh khi chưa phân tích thị giác.</p>
           </div>
         </div>
 
         <div class="lab-layout">
           <form id="thumbnail-lab-form" class="lab-form-card">
-            <h3>Thiết Lập Video Thử Nghiệm</h3>
+            <h3>Thiết Lập Tiêu Đề &amp; Ảnh Thử Nghiệm</h3>
             <div class="filter-field">
               <label for="lab-title">Tiêu đề Video dự kiến</label>
               <input
                 type="text"
                 id="lab-title"
-                value="Why Nobody Talks About How Roman Legionaries Survived Winter (2 Hours)"
+                value="Why Nobody Talks About How Roman Legionaries Survived Winter (48 Hours)"
                 required
               />
             </div>
             <div class="filter-field">
-              <label for="lab-thumb">URL Ảnh Thumbnail (hoặc chọn mẫu bên dưới)</label>
+              <label for="lab-thumb">URL Ảnh Thumbnail (http/https hợp lệ để hiển thị preview)</label>
               <input
                 type="url"
                 id="lab-thumb"
@@ -395,8 +425,8 @@
               />
             </div>
             <div class="filter-field">
-              <label for="lab-channel">Tên Kênh Hiển Thị</label>
-              <input type="text" id="lab-channel" value="My Faceless Chronicle" />
+              <label for="lab-channel">Tên Kênh Dự Kiến</label>
+              <input type="text" id="lab-channel" value="Team Documentary Studio" />
             </div>
             <div class="filter-field">
               <label for="lab-niche">Ngách Mục Tiêu</label>
@@ -409,12 +439,10 @@
               </select>
             </div>
             <button type="submit" class="btn-primary full-width">
-              🧪 Chấm Điểm CTR &amp; Chèn Vào Lưới YouTube
+              🧪 Chấm Điểm Tiêu Đề &amp; Xem Preview
             </button>
 
-            <div id="lab-audit-result" class="lab-audit-box">
-              <!-- Populated dynamically -->
-            </div>
+            <div id="lab-audit-result" class="lab-audit-box"></div>
           </form>
 
           <div class="yt-simulator-card">
@@ -422,64 +450,84 @@
               <span>Mô Phỏng Trang Chủ YouTube (Dark Mode)</span>
               <span class="pill ok">Vị trí #2 là Video của bạn</span>
             </div>
-            <div class="yt-sim-grid" id="yt-sim-grid">
-              <!-- Populated dynamically -->
-            </div>
+            <div class="yt-sim-grid" id="yt-sim-grid"></div>
           </div>
         </div>
       </section>
 
-      <!-- TAB 5: SWIPE FILE -->
-      <section class="tab-panel" id="tab-swipe-file">
-        <div class="section-header">
-          <div>
-            <h1>🗂️ Swipe File (Kho Lưu Trữ Kênh, Outlier &amp; Kịch Bản)</h1>
-            <p>Đồng bộ tự động giữa Web Dashboard, Chrome Extension trên YouTube.com và Antigravity MCP Server.</p>
-          </div>
-        </div>
-        <div class="swipe-grid" id="swipe-grid">
-          <!-- Populated dynamically -->
-        </div>
-      </section>
-
-      <!-- TAB 6: SETTINGS, API KEYS & MCP STATUS -->
+      <!-- TAB 6: TEAM MANAGEMENT, CRAWLER HEALTH & API KEYS -->
       <section class="tab-panel" id="tab-settings">
         <div class="section-header">
           <div>
-            <h1>⚙️ Cài Đặt Nguồn Dữ Liệu, API Keys &amp; MCP Server</h1>
-            <p>Mặc định hệ thống chạy miễn phí 100% qua <strong>YouTube InnerTube (`youtubei.js`)</strong>. Bạn có thể nhập thêm API Key bên dưới để mở khóa Batching &amp; Gemini Vision.</p>
+            <h1>⚙️ Quản Trị Nội Bộ: Nhân Viên, Crawler &amp; API Keys</h1>
+            <p>API Keys được lưu tách biệt trong file <code>data/.secrets.local.json</code> (gitignore), không lưu vào DB hay xóa nhầm khi gửi form trống.</p>
           </div>
         </div>
 
         <div class="settings-grid">
-          <form id="settings-form" class="lab-form-card">
-            <h3>🔑 Cấu Hình API Keys (Tùy Chọn)</h3>
-            <div class="filter-field">
-              <label for="set-yt-key">YouTube Data API v3 Key (Tùy chọn — dùng để batch 50 kênh/lần)</label>
-              <input type="password" id="set-yt-key" placeholder="AIzaSy... (Để trống nếu chỉ dùng InnerTube miễn phí)" />
-              <small id="status-yt-key" class="field-hint">Đang dùng chế độ InnerTube Zero-Quota mặc định.</small>
-            </div>
-
-            <div class="filter-field">
-              <label for="set-gemini-key">Gemini API Key (`gemini-2.5-flash` — Chấm Faceless Vision &amp; Phân tích Thumbnail)</label>
-              <input type="password" id="set-gemini-key" placeholder="AIzaSy... (Tùy chọn)" />
-              <small id="status-gemini-key" class="field-hint">Đang dùng bộ phân tích Heuristic nội bộ.</small>
-            </div>
-
-            <button type="submit" class="btn-primary">💾 Lưu Cấu Hình</button>
-          </form>
-
+          <!-- 1. Team Users Management (Manager Only) -->
           <div class="lab-form-card">
-            <h3>🤖 Tích Hợp Antigravity MCP Server &amp; Chrome Extension</h3>
-            <div class="info-list">
-              <div class="info-item">
-                <strong>1. MCP Server (`nexlev-clone`) trong Antigravity</strong>
-                <p>Đã đăng ký trong <code>~/.gemini/config/mcp_config.json</code>. Bạn có thể ra lệnh trực tiếp cho AI tìm ngách, lọc kênh Faceless, trích xuất transcript và lưu vào Swipe File.</p>
+            <h3>👥 Quản Lý Tài Khoản Nhân Viên (Manager / Member)</h3>
+            <div id="team-users-list" class="info-list" style="margin-bottom:1rem;"></div>
+            <form id="create-user-form" style="border-top:1px solid var(--border-subtle);padding-top:0.85rem;">
+              <h4>Thêm Nhân Viên Mới (Chỉ Quản Lý)</h4>
+              <div class="filter-field">
+                <label for="new-user-username">Username đăng nhập</label>
+                <input type="text" id="new-user-username" placeholder="VD: editor03" required />
               </div>
-              <div class="info-item">
-                <strong>2. Chrome Extension (Manifest V3)</strong>
-                <p>Thư mục cài đặt: <code>nexlev-clone/chrome-extension</code>. Mở <code>chrome://extensions</code> &rarr; Bật <strong>Developer mode</strong> &rarr; <strong>Load unpacked</strong> &rarr; Chọn thư mục <code>chrome-extension</code> để hiện nhãn Outlier, RPM và Thumbnail Tester ngay trên <code>youtube.com</code>.</p>
+              <div class="filter-field">
+                <label for="new-user-display">Họ tên / Vị trí</label>
+                <input type="text" id="new-user-display" placeholder="VD: Nguyễn Văn A (Scriptwriter)" required />
               </div>
+              <div class="filter-field">
+                <label for="new-user-role">Phân quyền</label>
+                <select id="new-user-role">
+                  <option value="member">Thành viên (Member — Nghiên cứu, tạo Brief, cập nhật việc)</option>
+                  <option value="manager">Quản lý (Manager — Duyệt, giao việc, quản lý hệ thống)</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="new-user-pass">Mật khẩu khởi tạo (&ge; 6 ký tự)</label>
+                <input type="password" id="new-user-pass" placeholder="Nhập mật khẩu..." required />
+              </div>
+              <button type="submit" class="btn-primary">+ Tạo Tài Khoản Nhân Viên</button>
+            </form>
+          </div>
+
+          <!-- 2. API Keys & Crawler Schedule -->
+          <div class="lab-form-card">
+            <form id="settings-form">
+              <h3>🔑 Cấu Hình API Keys &amp; Độ Chính Xác</h3>
+              <div class="filter-field">
+                <label for="set-yt-key">YouTube Data API v3 Key (Dùng để lấy chính xác Subscribers, Country, Ngày tạo kênh &amp; Video)</label>
+                <input type="password" id="set-yt-key" placeholder="Để trống nếu muốn giữ nguyên key hiện tại..." />
+                <small id="status-yt-key" class="field-hint"></small>
+              </div>
+
+              <div class="filter-field">
+                <label for="set-gemini-key">Gemini API Key (`gemini-2.5-flash` — Hỗ trợ gợi ý tiêu đề)</label>
+                <input type="password" id="set-gemini-key" placeholder="Để trống nếu muốn giữ nguyên key hiện tại..." />
+                <small id="status-gemini-key" class="field-hint"></small>
+              </div>
+
+              <div class="filter-field">
+                <label for="set-min-sample">Số video mẫu tối thiểu cùng định dạng để tính Outlier (Mặc định: 3)</label>
+                <input type="number" id="set-min-sample" min="2" max="20" value="3" />
+              </div>
+
+              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">
+                <button type="submit" class="btn-primary">💾 Lưu Cấu Hình (Giữ Key Cũ Nếu Để Trống)</button>
+                <button type="button" id="btn-clear-keys" class="btn-ghost">🗑️ Xóa API Keys</button>
+              </div>
+            </form>
+
+            <hr style="border-color:var(--border-subtle);margin:1.25rem 0;" />
+
+            <h3>🤖 Lịch Chạy Crawler &amp; Trạng Thái Hạt Giống</h3>
+            <div id="crawler-health-box" class="info-list"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
+              <button type="button" id="btn-toggle-schedule" class="btn-ghost">⏱️ Bật/Tắt Tự Động Quét</button>
+              <button type="button" id="btn-cancel-crawl" class="btn-ghost">🛑 Dừng Job Đang Chạy</button>
             </div>
           </div>
         </div>
@@ -487,14 +535,61 @@
     </main>
   </div>
 
-  <!-- Native Modal Dialog for Channel Deep-Dive & Transcript Extractor -->
+  <!-- Modal 1: Channel Deep-Dive, Real Snapshots & Honest Transcript vs Outline -->
   <dialog id="channel-modal" class="nexlev-dialog">
     <div class="dialog-header">
       <div id="modal-channel-title" class="dialog-title">Phân Tích Chuyên Sâu Kênh</div>
       <button type="button" id="btn-close-modal" class="btn-ghost">✕ Đóng</button>
     </div>
-    <div id="modal-channel-body" class="dialog-body">
-      <!-- Populated dynamically -->
+    <div id="modal-channel-body" class="dialog-body"></div>
+  </dialog>
+
+  <!-- Modal 2: Login / Switch Employee Account -->
+  <dialog id="login-modal" class="nexlev-dialog" style="max-width:460px;">
+    <div class="dialog-header">
+      <div class="dialog-title">🔐 Đăng Nhập Nội Bộ Công Ty</div>
+      <button type="button" id="btn-close-login" class="btn-ghost">✕ Đóng</button>
+    </div>
+    <div class="dialog-body">
+      <form id="login-form" class="lab-form-card">
+        <div class="filter-field">
+          <label for="login-username">Tên đăng nhập (Username)</label>
+          <input type="text" id="login-username" value="admin" required />
+        </div>
+        <div class="filter-field">
+          <label for="login-password">Mật khẩu</label>
+          <input type="password" id="login-password" value="nexlev-admin-2026" required />
+        </div>
+        <button type="submit" class="btn-primary full-width">Đăng Nhập</button>
+      </form>
+      <div class="info-item" style="margin-top:0.85rem;font-size:0.84rem;">
+        <strong>Tài khoản nội bộ mặc định để kiểm thử nhanh:</strong>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap;">
+          <button type="button" class="btn-ghost" data-quick-login="admin:nexlev-admin-2026">
+            👑 Quản lý (admin)
+          </button>
+          <button type="button" class="btn-ghost" data-quick-login="member1:nexlev-member-2026">
+            👤 Nhân viên 1 (member1)
+          </button>
+          <button type="button" class="btn-ghost" data-quick-login="member2:nexlev-member-2026">
+            👤 Nhân viên 2 (member2)
+          </button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal 3: Bulk Import URLs / Handles -->
+  <dialog id="bulk-import-modal" class="nexlev-dialog" style="max-width:620px;">
+    <div class="dialog-header">
+      <div class="dialog-title">📥 Nhập Hàng Loạt Kênh Hoặc Video (Bulk Import)</div>
+      <button type="button" id="btn-close-bulk" class="btn-ghost">✕ Đóng</button>
+    </div>
+    <div class="dialog-body">
+      <p class="ch-meta">Nhập mỗi dòng 1 URL kênh (<code>youtube.com/@handle</code>), URL video (<code>youtube.com/watch?v=...</code>), <code>@handle</code> hoặc <code>UC...</code> ID. Hệ thống sẽ kiểm tra từng dòng, loại trùng và thêm vào Watchlist / Thư viện ý tưởng.</p>
+      <textarea id="bulk-import-textarea" rows="7" style="width:100%;background:var(--bg-base);color:var(--text-main);border:1px solid var(--border-subtle);border-radius:10px;padding:0.75rem;margin:0.75rem 0;" placeholder="https://www.youtube.com/@FernTV&#10;https://www.youtube.com/watch?v=RlnD7RwfzbE&#10;@ ImperialHistory"></textarea>
+      <button type="button" id="btn-submit-bulk" class="btn-primary">🚀 Kiểm Tra &amp; Nhập Dữ Liệu</button>
+      <div id="bulk-import-result" style="margin-top:0.85rem;"></div>
     </div>
   </dialog>
 

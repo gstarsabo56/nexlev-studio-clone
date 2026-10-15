@@ -1,59 +1,259 @@
+// Internal Company Web API Server (Batch 2, 3, 4)
+// Loopback-bound by default, CORS allowlist, Role-Based Auth (manager / member),
+// Strict JSON validation, SQLite WAL repository, and Shared Team Workflow endpoints.
+
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  loadDb,
-  saveDb,
-  filterChannels,
-  getViralOutlierVideos,
-  scanYouTubeNicheLive,
+  ensureDbMigrated,
+  queryChannels,
+  queryOutlierVideos,
+  getChannelDetail,
+  getChannelGrowthTracking,
+  toggleChannelWatchlist,
   getVideoTranscriptLive,
+  generateVideoProductionOutline,
   auditThumbnailAndTitle,
   estimateChannelRpmAndRevenue,
-  classifyFacelessAndNiche
+  classifyFacelessAndNiche,
+  getSwipeData,
+  createSwipeItem,
+  updateSwipeItem,
+  deleteSwipeItem,
+  generateSwipeProductionBrief,
+  bulkImportTargets,
+  exportShortlist,
+  getBatchExtensionMetrics,
+  getPublicSettings,
+  saveSettingsAndSecrets,
+  authenticateUser,
+  revokeUserSession,
+  resolveUserFromToken,
+  listTeamUsers,
+  createTeamUser,
+  updateTeamUser,
+  SWIPE_WORKFLOW_STAGES,
+  SWIPE_WORKFLOW_STAGE_LABELS
 } from "./core/engine.mjs";
 import { NICHE_CPM_TABLE } from "./core/seed-data.mjs";
 import {
   GLOBAL_COUNTRIES,
   crawlerState,
   crawlMultiCountryBatch,
-  startBackgroundAutoCrawler
+  scanYouTubeNicheLive,
+  updateCrawlerSchedule,
+  cancelCrawlJob,
+  getCrawlerHealth,
+  recoverInterruptedCrawlJobs,
+  syncScheduleFromDb
 } from "./core/crawler.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
-const PORT = Number(process.env.PORT || 3088);
+export const PORT = Number(process.env.PORT || 3088);
+export const HOST = process.env.HOST || "127.0.0.1";
+const MAX_BODY_BYTES = 1_048_576; // 1 MB limit
 
-// Start periodic background multi-country crawler every 15 minutes by default
-startBackgroundAutoCrawler(15);
+// Initialize SQLite migration, recover any interrupted jobs, and sync persisted schedule
+ensureDbMigrated();
+recoverInterruptedCrawlJobs();
+syncScheduleFromDb();
 
-function sendJson(res, status, payload) {
-  res.writeHead(status, {
+function getAllowedOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return null;
+  if (
+    origin === `http://localhost:${PORT}` ||
+    origin === `http://127.0.0.1:${PORT}` ||
+    origin.startsWith("http://localhost:") ||
+    origin.startsWith("http://127.0.0.1:") ||
+    origin.startsWith("chrome-extension://")
+  ) {
+    return origin;
+  }
+  const extra = (process.env.NEXLEV_CORS_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (extra.includes(origin)) return origin;
+  return null;
+}
+
+function sendJson(req, res, status, payload, extraHeaders = {}) {
+  const allowedOrigin = getAllowedOrigin(req);
+  const headers = {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, x-api-key, x-device-id, x-user-id, x-request-id, x-app-version, x-app-name"
-  });
+    "X-Content-Type-Options": "nosniff",
+    "Vary": "Origin",
+    ...extraHeaders
+  };
+  if (allowedOrigin) {
+    headers["Access-Control-Allow-Origin"] = allowedOrigin;
+    headers["Access-Control-Allow-Credentials"] = "true";
+    headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
+    headers["Access-Control-Allow-Headers"] =
+      "Content-Type, Authorization, x-nexlev-token, x-api-key";
+  }
+  res.writeHead(status, headers);
   res.end(JSON.stringify(payload));
 }
 
-function readJsonBody(req) {
-  return new Promise((resolve) => {
+/**
+ * Strictly parses JSON request bodies with a 1MB size limit.
+ * Malformed JSON throws an error with statusCode = 400 (never silently returns {}).
+ */
+function readJsonBodyStrict(req) {
+  return new Promise((resolve, reject) => {
     let raw = "";
+    let byteCount = 0;
+
     req.on("data", (chunk) => {
-      raw += chunk;
+      byteCount += chunk.length;
+      if (byteCount > MAX_BODY_BYTES) {
+        const err = new Error("Payload vượt quá giới hạn 1MB.");
+        err.statusCode = 413;
+        err.code = "PAYLOAD_TOO_LARGE";
+        req.destroy();
+        reject(err);
+        return;
+      }
+      raw += chunk.toString("utf8");
     });
+
     req.on("end", () => {
-      if (!raw) return resolve({});
+      const trimmed = raw.trim();
+      if (!trimmed) return resolve({});
       try {
-        resolve(JSON.parse(raw));
+        const parsed = JSON.parse(trimmed);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          const err = new Error("Body JSON phải là một object hợp lệ.");
+          err.statusCode = 400;
+          err.code = "INVALID_JSON_OBJECT";
+          return reject(err);
+        }
+        resolve(parsed);
       } catch {
-        resolve({});
+        const err = new Error("JSON sai định dạng (Malformed JSON).");
+        err.statusCode = 400;
+        err.code = "INVALID_JSON";
+        reject(err);
       }
     });
+
+    req.on("error", (err) => {
+      reject(err);
+    });
   });
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const out = {};
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx > 0) {
+      const k = part.slice(0, idx).trim();
+      const v = decodeURIComponent(part.slice(idx + 1).trim());
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function extractTokenFromRequest(req) {
+  const authHeader = req.headers.authorization || "";
+  if (authHeader.toLowerCase().startsWith("bearer ")) {
+    return authHeader.slice(7).trim();
+  }
+  if (req.headers["x-nexlev-token"]) {
+    return String(req.headers["x-nexlev-token"]).trim();
+  }
+  if (req.headers["x-api-key"]) {
+    return String(req.headers["x-api-key"]).trim();
+  }
+  const cookies = parseCookies(req);
+  if (cookies.nexlev_session) {
+    return cookies.nexlev_session;
+  }
+  return null;
+}
+
+function isLoopbackAddress(addr = "") {
+  return (
+    addr === "127.0.0.1" ||
+    addr === "::1" ||
+    addr === "::ffff:127.0.0.1" ||
+    addr === "localhost"
+  );
+}
+
+/**
+ * Resolves the authenticated user for API requests.
+ * - If a token/cookie is provided, validates it against SQLite sessions/API tokens;
+ *   invalid tokens immediately return 401.
+ * - For same-origin local loopback requests without an explicit token, falls back to the
+ *   default local manager account unless NEXLEV_STRICT_AUTH=true is set.
+ */
+function authenticateRequest(req, db) {
+  const explicitToken = extractTokenFromRequest(req);
+  if (explicitToken) {
+    const user = resolveUserFromToken(db, explicitToken);
+    if (!user) {
+      const err = new Error("Phiên đăng nhập hoặc API token không hợp lệ hoặc đã hết hạn.");
+      err.statusCode = 401;
+      err.code = "UNAUTHORIZED";
+      throw err;
+    }
+    return user;
+  }
+
+  const origin = req.headers.origin;
+  if (origin && !getAllowedOrigin(req)) {
+    const err = new Error("Origin không được phép truy cập API.");
+    err.statusCode = 403;
+    err.code = "FORBIDDEN_ORIGIN";
+    throw err;
+  }
+
+  if (process.env.NEXLEV_STRICT_AUTH === "true" || !isLoopbackAddress(req.socket?.remoteAddress)) {
+    const err = new Error("Yêu cầu đăng nhập (Missing authentication token).");
+    err.statusCode = 401;
+    err.code = "AUTH_REQUIRED";
+    throw err;
+  }
+
+  // Loopback default convenience user (admin manager)
+  const defaultAdmin = db
+    .prepare("SELECT * FROM users WHERE role = 'manager' AND is_active = 1 ORDER BY created_at ASC LIMIT 1")
+    .get();
+  return defaultAdmin
+    ? {
+        id: defaultAdmin.id,
+        username: defaultAdmin.username,
+        displayName: defaultAdmin.display_name,
+        role: defaultAdmin.role,
+        apiToken: defaultAdmin.api_token
+      }
+    : {
+        id: "user-manager-admin",
+        username: "admin",
+        displayName: "Quản lý Team (Manager)",
+        role: "manager",
+        apiToken: ""
+      };
+}
+
+function requireManagerRole(user) {
+  if (!user || user.role !== "manager") {
+    const err = new Error(
+      "Quyền truy cập bị từ chối: Thao tác này yêu cầu quyền Quản lý (Manager)."
+    );
+    err.statusCode = 403;
+    err.code = "FORBIDDEN_ROLE";
+    throw err;
+  }
 }
 
 const MIME_TYPES = {
@@ -65,29 +265,177 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml"
 };
 
-const server = http.createServer(async (req, res) => {
+export async function handleHttpRequest(req, res) {
   if (req.method === "OPTIONS") {
-    return sendJson(res, 200, { ok: true });
+    if (req.headers.origin && !getAllowedOrigin(req)) {
+      return sendJson(req, res, 403, { error: "Origin not allowed" });
+    }
+    return sendJson(req, res, 200, { ok: true });
   }
 
-  const urlObj = new URL(req.url || "/", `http://localhost:${PORT}`);
+  const urlObj = new URL(req.url || "/", `http://${HOST}:${PORT}`);
   const pathname = urlObj.pathname;
   const query = Object.fromEntries(urlObj.searchParams.entries());
+  const db = ensureDbMigrated();
 
   try {
-    // 1. Summary & Niches Metadata
-    if (pathname === "/api/v1/meta" && req.method === "GET") {
-      const db = loadDb();
-      const countryCounts = {};
-      for (const c of db.channels) {
-        const code = c.country || "US";
-        countryCounts[code] = (countryCounts[code] || 0) + 1;
+    // ========================================================================
+    // AUTHENTICATION & TEAM USER MANAGEMENT ENDPOINTS
+    // ========================================================================
+
+    if (pathname === "/api/v1/auth/login" && req.method === "POST") {
+      const body = await readJsonBodyStrict(req);
+      const authResult = authenticateUser(db, body.username, body.password);
+      if (!authResult) {
+        return sendJson(req, res, 401, {
+          ok: false,
+          error: "Sai tên đăng nhập hoặc mật khẩu.",
+          code: "INVALID_CREDENTIALS"
+        });
       }
-      return sendJson(res, 200, {
-        totalChannels: db.channels.length,
-        totalOutliers: getViralOutlierVideos({ maxDaysAgo: 365 }).length,
-        trackedCount: (db.trackedChannelIds || []).length,
-        swipeCount: (db.swipeItems || []).length,
+      const cookieHeader = `nexlev_session=${encodeURIComponent(
+        authResult.sessionToken
+      )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${14 * 86400}`;
+      return sendJson(
+        req,
+        res,
+        200,
+        {
+          ok: true,
+          sessionToken: authResult.sessionToken,
+          expiresAt: authResult.expiresAt,
+          user: authResult.user
+        },
+        { "Set-Cookie": cookieHeader }
+      );
+    }
+
+    if (pathname === "/api/v1/auth/logout" && req.method === "POST") {
+      const token = extractTokenFromRequest(req);
+      if (token) revokeUserSession(db, token);
+      return sendJson(
+        req,
+        res,
+        200,
+        { ok: true },
+        { "Set-Cookie": "nexlev_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0" }
+      );
+    }
+
+    if (pathname === "/api/v1/auth/bootstrap" && req.method === "GET") {
+      if (!isLoopbackAddress(req.socket?.remoteAddress)) {
+        return sendJson(req, res, 403, { error: "Bootstrap only allowed on loopback" });
+      }
+      const user = authenticateRequest(req, db);
+      return sendJson(req, res, 200, {
+        ok: true,
+        user,
+        apiToken: user.apiToken,
+        teamUsers: listTeamUsers(db)
+      });
+    }
+
+    // All other /api/* routes require valid authentication
+    let currentUser = null;
+    if (pathname.startsWith("/api/")) {
+      currentUser = authenticateRequest(req, db);
+    }
+
+    if (pathname === "/api/v1/auth/me" && req.method === "GET") {
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: currentUser,
+        teamUsers: listTeamUsers(db)
+      });
+    }
+
+    if (pathname === "/api/v1/users" && req.method === "GET") {
+      return sendJson(req, res, 200, {
+        users: listTeamUsers(db, { includeTokens: currentUser.role === "manager" })
+      });
+    }
+
+    if (pathname === "/api/v1/users" && req.method === "POST") {
+      requireManagerRole(currentUser);
+      const body = await readJsonBodyStrict(req);
+      const created = createTeamUser(db, body);
+      return sendJson(req, res, 201, { ok: true, user: created });
+    }
+
+    if (pathname.startsWith("/api/v1/users/") && req.method === "PUT") {
+      requireManagerRole(currentUser);
+      const targetUserId = decodeURIComponent(pathname.replace("/api/v1/users/", ""));
+      const body = await readJsonBodyStrict(req);
+      const updated = updateTeamUser(db, targetUserId, body);
+      return sendJson(req, res, 200, { ok: true, user: updated });
+    }
+
+    // ========================================================================
+    // 1. SUMMARY & SYSTEM METADATA
+    // ========================================================================
+
+    if (pathname === "/api/v1/meta" && req.method === "GET") {
+      const settings = getPublicSettings(db);
+      const includeDemo =
+        query.includeDemo !== undefined
+          ? query.includeDemo === "true"
+          : settings.includeDemo;
+
+      const originCounts = db
+        .prepare("SELECT data_origin, COUNT(*) AS c FROM channels GROUP BY data_origin")
+        .all();
+      const countsByOrigin = { observed: 0, legacy_unverified: 0, demo: 0 };
+      for (const r of originCounts) {
+        countsByOrigin[r.data_origin] = r.c;
+      }
+
+      const activeChannelCount = includeDemo
+        ? countsByOrigin.observed + countsByOrigin.legacy_unverified + countsByOrigin.demo
+        : countsByOrigin.observed + countsByOrigin.legacy_unverified;
+
+      const marketCountsRows = db
+        .prepare(
+          `SELECT COALESCE(channel_country, discovery_country, 'US') AS code, COUNT(*) AS c
+           FROM channels
+           WHERE (? = 1 OR data_origin != 'demo')
+           GROUP BY COALESCE(channel_country, discovery_country, 'US')`
+        )
+        .all(includeDemo ? 1 : 0);
+      const countryCounts = {};
+      for (const r of marketCountsRows) {
+        countryCounts[r.code] = r.c;
+      }
+
+      const outlierRes = queryOutlierVideos(
+        { includeDemo: includeDemo ? "true" : "false", limit: 1 },
+        db
+      );
+      const trackedCount = db
+        .prepare("SELECT COUNT(*) AS c FROM channels WHERE is_tracked = 1 AND (? = 1 OR data_origin != 'demo')")
+        .get(includeDemo ? 1 : 0).c;
+      const swipeCount = db.prepare("SELECT COUNT(*) AS c FROM swipe_items").get().c;
+      const filterTemplates = db
+        .prepare("SELECT * FROM filter_templates ORDER BY created_at ASC")
+        .all()
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          filters: JSON.parse(r.filters_json || "{}")
+        }));
+
+      return sendJson(req, res, 200, {
+        totalChannels: activeChannelCount,
+        countsByOrigin,
+        totalOutliers: outlierRes.totalCount,
+        trackedCount,
+        swipeCount,
+        includeDemo,
+        minOutlierSampleSize: settings.minOutlierSampleSize,
+        currentUser,
+        teamUsers: listTeamUsers(db),
+        workflowStages: SWIPE_WORKFLOW_STAGES,
+        workflowStageLabels: SWIPE_WORKFLOW_STAGE_LABELS,
         niches: Object.entries(NICHE_CPM_TABLE).map(([name, meta]) => ({
           name,
           ...meta
@@ -97,74 +445,92 @@ const server = http.createServer(async (req, res) => {
           channelCount: countryCounts[c.code] || 0
         })),
         crawlerState,
-        filterTemplates: db.filterTemplates || [],
-        trendingKeywords: db.searchHistory || [],
-        hasYoutubeApiKey: Boolean(db.settings?.youtubeApiKey),
-        hasGeminiApiKey: Boolean(db.settings?.geminiApiKey)
+        filterTemplates,
+        hasYoutubeApiKey: settings.hasYoutubeApiKey,
+        hasGeminiApiKey: settings.hasGeminiApiKey
       });
     }
 
-    // 1b. Global Multi-Country Auto-Crawler Endpoints
+    // ========================================================================
+    // 2. CRAWLER HEALTH, JOBS & SCHEDULE
+    // ========================================================================
+
     if (pathname === "/api/v1/crawler/status" && req.method === "GET") {
-      const db = loadDb();
-      return sendJson(res, 200, {
-        crawlerState,
-        countries: GLOBAL_COUNTRIES,
-        totalChannelsInDb: db.channels.length
-      });
+      return sendJson(req, res, 200, getCrawlerHealth(db));
     }
 
     if (pathname === "/api/v1/crawler/run" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      const countries = Array.isArray(body.countries) && body.countries.length
-        ? body.countries
-        : body.country && body.country !== "ALL"
-          ? [body.country]
-          : ["ALL"];
-      const summary = await crawlMultiCountryBatch({
-        countries,
-        keywordsPerCountry: Number(body.keywordsPerCountry || 2),
-        maxChannelsPerKeyword: Number(body.maxChannelsPerKeyword || 5),
-        customKeyword: String(body.customKeyword || "").trim()
-      });
-      return sendJson(res, 200, { ok: true, summary, crawlerState });
+      const body = await readJsonBodyStrict(req);
+      const countries =
+        Array.isArray(body.countries) && body.countries.length
+          ? body.countries
+          : body.country && body.country !== "ALL"
+            ? [body.country]
+            : ["ALL"];
+      const summary = await crawlMultiCountryBatch(
+        {
+          countries,
+          keywordsPerCountry: Math.min(10, Math.max(1, Number(body.keywordsPerCountry || 2))),
+          maxChannelsPerKeyword: Math.min(20, Math.max(1, Number(body.maxChannelsPerKeyword || 5))),
+          customKeyword: String(body.customKeyword || "").trim()
+        },
+        db
+      );
+      return sendJson(req, res, 200, { ok: true, summary, crawlerState });
+    }
+
+    if (pathname === "/api/v1/crawler/cancel" && req.method === "POST") {
+      const body = await readJsonBodyStrict(req);
+      const result = cancelCrawlJob(body.jobId || null, db);
+      return sendJson(req, res, 200, { ok: true, ...result, crawlerState });
     }
 
     if (pathname === "/api/v1/crawler/schedule" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      if (typeof body.autoScheduleEnabled === "boolean") {
-        crawlerState.autoScheduleEnabled = body.autoScheduleEnabled;
-      }
-      if (Number(body.intervalMinutes) > 0) {
-        startBackgroundAutoCrawler(Number(body.intervalMinutes));
-      }
-      return sendJson(res, 200, { ok: true, crawlerState });
+      requireManagerRole(currentUser);
+      const body = await readJsonBodyStrict(req);
+      const nextState = updateCrawlerSchedule(
+        {
+          autoScheduleEnabled: body.autoScheduleEnabled,
+          intervalMinutes: body.intervalMinutes
+        },
+        db
+      );
+      return sendJson(req, res, 200, { ok: true, crawlerState: nextState });
     }
 
-    // 2. 21-Filter Niche Finder
+    // ========================================================================
+    // 3. CHANNELS & NICHE FINDER (Server-Side Filtered & Paginated)
+    // ========================================================================
+
     if (pathname === "/api/v1/channels" && req.method === "GET") {
-      const results = filterChannels(query);
-      return sendJson(res, 200, {
-        count: results.length,
-        channels: results
-      });
+      const result = queryChannels(query, db);
+      return sendJson(req, res, 200, result);
     }
 
-    // 3. Live YouTube InnerTube Niche Scanner (Zero Quota, optional country)
     if (pathname === "/api/v1/niche/scan-live" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      const keyword = String(body.keyword || query.keyword || "faceless documentary").trim();
-      const country = String(body.country || "ALL").trim();
-      const limit = Number(body.limit || 10);
-
-      if (country && country !== "US") {
-        const summary = await crawlMultiCountryBatch({
-          countries: country === "ALL" ? ["US", "GB", "DE", "JP", "KR", "VN", "ES"] : [country],
-          keywordsPerCountry: 1,
-          maxChannelsPerKeyword: limit,
-          customKeyword: keyword
+      const body = await readJsonBodyStrict(req);
+      const keyword = String(body.keyword || query.keyword || "").trim();
+      if (!keyword) {
+        return sendJson(req, res, 400, {
+          error: "Vui lòng nhập từ khóa (keyword) để quét ngách.",
+          code: "MISSING_KEYWORD"
         });
-        return sendJson(res, 200, {
+      }
+      const country = String(body.country || "US").trim();
+      const limit = Math.min(25, Math.max(1, Number(body.limit || 10)));
+
+      if (country === "ALL") {
+        const summary = await crawlMultiCountryBatch(
+          {
+            countries: ["US", "GB", "DE", "JP", "KR", "VN", "ES"],
+            keywordsPerCountry: 1,
+            maxChannelsPerKeyword: limit,
+            customKeyword: keyword
+          },
+          db
+        );
+        return sendJson(req, res, 200, {
+          jobId: summary.jobId,
           source: "youtube-innertube-multi-country",
           keyword,
           discoveredCount: (summary.newChannelsCount || 0) + (summary.updatedChannelsCount || 0),
@@ -172,218 +538,310 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const scanRes = await scanYouTubeNicheLive(keyword, limit);
-      return sendJson(res, 200, scanRes);
+      const scanRes = await scanYouTubeNicheLive(keyword, limit, { country }, db);
+      return sendJson(req, res, 200, scanRes);
     }
 
-    // 4. Channel Deep-Dive Analytics + Similar Channels
     if (pathname.startsWith("/api/v1/channels/") && req.method === "GET") {
       const channelId = decodeURIComponent(pathname.replace("/api/v1/channels/", ""));
-      const db = loadDb();
-      const ch = db.channels.find(
-        (c) =>
-          c.id === channelId ||
-          c.handle.toLowerCase() === channelId.toLowerCase()
-      );
-      if (!ch) {
-        return sendJson(res, 404, { error: "Channel not found" });
+      const detail = getChannelDetail(channelId, db);
+      if (detail.ambiguous) {
+        return sendJson(req, res, 409, detail);
       }
-      const similarChannels = db.channels
-        .filter((other) => other.id !== ch.id && (other.niche === ch.niche || other.format === ch.format))
-        .slice(0, 4);
-
-      return sendJson(res, 200, {
-        channel: ch,
-        similarChannels,
-        shortVsLongSplit:
-          ch.contentType === "shorts"
-            ? { shortsShare: 0.92, longFormShare: 0.08 }
-            : { shortsShare: 0.14, longFormShare: 0.86 }
-      });
+      if (!detail.found) {
+        return sendJson(req, res, 404, { error: detail.message || "Channel not found" });
+      }
+      return sendJson(req, res, 200, detail);
     }
 
-    // 5. Viral Outliers on Small Channels Radar
+    // ========================================================================
+    // 4. OUTLIER VIDEOS RADAR
+    // ========================================================================
+
     if (pathname === "/api/v1/outliers" && req.method === "GET") {
-      const outliers = getViralOutlierVideos(query);
-      return sendJson(res, 200, {
-        count: outliers.length,
-        outliers
-      });
+      const result = queryOutlierVideos(query, db);
+      return sendJson(req, res, 200, result);
     }
 
-    // 6. 48-Hour Realtime Channel Tracker
+    // ========================================================================
+    // 5. SHARED COMPANY WATCHLIST & SNAPSHOT GROWTH TRACKER
+    // ========================================================================
+
     if (pathname === "/api/v1/tracker" && req.method === "GET") {
-      const db = loadDb();
-      const trackedSet = new Set(db.trackedChannelIds || []);
-      const trackedChannels = db.channels.filter((c) => trackedSet.has(c.id));
-      return sendJson(res, 200, {
-        count: trackedChannels.length,
-        channels: trackedChannels
+      const { channels } = queryChannels(
+        { includeDemo: query.includeDemo || "false", limit: 200 },
+        db
+      );
+      const tracked = channels
+        .filter((c) => c.isTracked)
+        .map((c) => ({
+          ...c,
+          growthTracking: getChannelGrowthTracking(c.id, db)
+        }));
+      return sendJson(req, res, 200, {
+        count: tracked.length,
+        channels: tracked
       });
     }
 
     if (pathname === "/api/v1/tracker/toggle" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      const channelId = body.channelId;
-      const db = loadDb();
-      db.trackedChannelIds = db.trackedChannelIds || [];
-      const idx = db.trackedChannelIds.indexOf(channelId);
-      let tracked = false;
-      if (idx >= 0) {
-        db.trackedChannelIds.splice(idx, 1);
-      } else {
-        db.trackedChannelIds.unshift(channelId);
-        tracked = true;
+      const body = await readJsonBodyStrict(req);
+      if (!body.channelId) {
+        return sendJson(req, res, 400, { error: "Thiếu channelId" });
       }
-      saveDb(db);
-      return sendJson(res, 200, { ok: true, channelId, tracked, trackedChannelIds: db.trackedChannelIds });
+      const resToggle = toggleChannelWatchlist(
+        body.channelId,
+        {
+          note: body.note,
+          actorUsername: currentUser?.username || "admin"
+        },
+        db
+      );
+      return sendJson(req, res, 200, resToggle);
     }
 
-    // 7. Swipe File API
+    // ========================================================================
+    // 6. SHARED IDEA LIBRARY & 6-STAGE TEAM WORKFLOW (SWIPE FILE)
+    // ========================================================================
+
     if (pathname === "/api/v1/swipe" && req.method === "GET") {
-      const db = loadDb();
-      const folderId = query.folderId || "all";
-      const items =
-        folderId === "all"
-          ? db.swipeItems || []
-          : (db.swipeItems || []).filter((i) => i.folderId === folderId);
-      return sendJson(res, 200, {
-        folders: db.swipeFolders || [],
-        items
-      });
+      const data = getSwipeData(
+        {
+          folderId: query.folderId || "all",
+          stage: query.stage || "all",
+          assignee: query.assignee || "all"
+        },
+        db
+      );
+      return sendJson(req, res, 200, data);
     }
 
     if (pathname === "/api/v1/swipe" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      const db = loadDb();
-      const newItem = {
-        id: `swipe-${Date.now()}`,
-        folderId: body.folderId || "folder-outliers",
-        type: body.type || "video",
-        title: body.title || "Untitled YouTube Idea",
-        channelTitle: body.channelTitle || "YouTube Channel",
-        channelHandle: body.channelHandle || "@creator",
-        thumbnailUrl:
-          body.thumbnailUrl ||
-          "https://i.ytimg.com/vi/RlnD7RwfzbE/hqdefault.jpg",
-        outlierRatio: Number(body.outlierRatio || 3.5),
-        views: Number(body.views || 100000),
-        estimatedRpm: Number(body.estimatedRpm || 9.5),
-        tags: Array.isArray(body.tags)
-          ? body.tags
-          : String(body.tags || "Outlier, Faceless")
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean),
-        notes: body.notes || "",
-        savedAt: new Date().toISOString()
-      };
-      db.swipeItems = [newItem, ...(db.swipeItems || [])];
-      saveDb(db);
-      return sendJson(res, 201, { ok: true, item: newItem });
+      const body = await readJsonBodyStrict(req);
+      const item = createSwipeItem(
+        {
+          ...body,
+          createdBy: currentUser?.username || "admin",
+          updatedBy: currentUser?.username || "admin"
+        },
+        db
+      );
+      return sendJson(req, res, 201, { ok: true, item });
+    }
+
+    if (
+      pathname.startsWith("/api/v1/swipe/") &&
+      pathname.endsWith("/brief") &&
+      req.method === "POST"
+    ) {
+      const id = decodeURIComponent(
+        pathname.replace("/api/v1/swipe/", "").replace(/\/brief$/, "")
+      );
+      const updated = generateSwipeProductionBrief(id, db);
+      return sendJson(req, res, 200, { ok: true, item: updated });
+    }
+
+    if (
+      pathname.startsWith("/api/v1/swipe/") &&
+      (req.method === "PUT" || req.method === "PATCH")
+    ) {
+      const id = decodeURIComponent(pathname.replace("/api/v1/swipe/", ""));
+      const body = await readJsonBodyStrict(req);
+
+      // If transitioning to 'approved' or 'assigned', verify manager permission when enforceManagerApproval is active
+      if (
+        currentUser?.role === "member" &&
+        body.enforceRoleCheck === true &&
+        (body.workflowStage === "approved" || body.workflowStage === "assigned")
+      ) {
+        requireManagerRole(currentUser);
+      }
+
+      const updated = updateSwipeItem(
+        id,
+        {
+          ...body,
+          updatedBy: currentUser?.username || "admin"
+        },
+        db
+      );
+      return sendJson(req, res, 200, { ok: true, item: updated });
     }
 
     if (pathname.startsWith("/api/v1/swipe/") && req.method === "DELETE") {
       const id = decodeURIComponent(pathname.replace("/api/v1/swipe/", ""));
-      const db = loadDb();
-      db.swipeItems = (db.swipeItems || []).filter((i) => i.id !== id);
-      saveDb(db);
-      return sendJson(res, 200, { ok: true, deletedId: id });
+      const result = deleteSwipeItem(id, db);
+      return sendJson(req, res, 200, { ok: true, ...result });
     }
 
-    // 8. Video Transcript Extractor (InnerTube 0 Quota)
-    if (pathname.startsWith("/api/v1/videos/") && pathname.endsWith("/transcript") && req.method === "GET") {
-      const videoId = decodeURIComponent(
-        pathname.replace("/api/v1/videos/", "").replace("/transcript", "")
-      );
-      const transcript = await getVideoTranscriptLive(videoId);
-      return sendJson(res, 200, transcript);
+    // ========================================================================
+    // 7. BULK IMPORT, SHORTLIST EXPORT & CHROME EXTENSION BATCH METRICS
+    // ========================================================================
+
+    if (pathname === "/api/v1/import/bulk" && req.method === "POST") {
+      const body = await readJsonBodyStrict(req);
+      const result = bulkImportTargets(body.lines || body.input || [], db);
+      return sendJson(req, res, 200, { ok: true, ...result });
     }
 
-    // 9. Thumbnail & Title Tester + AI Audit
-    if (pathname === "/api/v1/thumbnail-lab/audit" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      const result = await auditThumbnailAndTitle(body);
-      return sendJson(res, 200, result);
-    }
-
-    // 10. Settings & Optional API Keys
-    if (pathname === "/api/v1/settings" && req.method === "GET") {
-      const db = loadDb();
-      return sendJson(res, 200, {
-        youtubeApiKeyMasked: db.settings?.youtubeApiKey
-          ? `${db.settings.youtubeApiKey.slice(0, 6)}...${db.settings.youtubeApiKey.slice(-4)}`
-          : "",
-        geminiApiKeyMasked: db.settings?.geminiApiKey
-          ? `${db.settings.geminiApiKey.slice(0, 6)}...${db.settings.geminiApiKey.slice(-4)}`
-          : "",
-        hasYoutubeApiKey: Boolean(db.settings?.youtubeApiKey),
-        hasGeminiApiKey: Boolean(db.settings?.geminiApiKey),
-        defaultCurrency: db.settings?.defaultCurrency || "USD",
-        autoTrackOutliers: db.settings?.autoTrackOutliers !== false
+    if (pathname === "/api/v1/export" && req.method === "GET") {
+      const format = query.format === "csv" ? "csv" : "json";
+      const target = query.target === "swipe" ? "swipe" : "channels";
+      const exported = exportShortlist({ format, target, filters: query }, db);
+      res.writeHead(200, {
+        "Content-Type": exported.contentType,
+        "Content-Disposition": `attachment; filename="${exported.filename}"`
       });
+      return res.end(exported.body);
+    }
+
+    if (pathname === "/api/v1/extension/batch-metrics" && req.method === "POST") {
+      const body = await readJsonBodyStrict(req);
+      const metrics = getBatchExtensionMetrics(body, db);
+      return sendJson(req, res, 200, { ok: true, ...metrics });
+    }
+
+    // ========================================================================
+    // 8. VIDEO TRANSCRIPT & SEPARATE PRODUCTION OUTLINE
+    // ========================================================================
+
+    if (
+      pathname.startsWith("/api/v1/videos/") &&
+      pathname.endsWith("/transcript") &&
+      req.method === "GET"
+    ) {
+      const videoId = decodeURIComponent(
+        pathname.replace("/api/v1/videos/", "").replace(/\/transcript$/, "")
+      );
+      const transcript = await getVideoTranscriptLive(videoId, {
+        offset: Number(query.offset || 0),
+        limit: Number(query.limit || 120),
+        full: query.full === "true",
+        lang: query.lang || null
+      });
+      return sendJson(req, res, 200, transcript);
+    }
+
+    if (
+      pathname.startsWith("/api/v1/videos/") &&
+      pathname.endsWith("/outline") &&
+      req.method === "POST"
+    ) {
+      const videoId = decodeURIComponent(
+        pathname.replace("/api/v1/videos/", "").replace(/\/outline$/, "")
+      );
+      const outline = generateVideoProductionOutline(videoId, db);
+      return sendJson(req, res, 200, outline);
+    }
+
+    // ========================================================================
+    // 9. THUMBNAIL & TITLE AUDITOR + SETTINGS
+    // ========================================================================
+
+    if (pathname === "/api/v1/thumbnail-lab/audit" && req.method === "POST") {
+      const body = await readJsonBodyStrict(req);
+      const result = await auditThumbnailAndTitle(body);
+      return sendJson(req, res, 200, result);
+    }
+
+    if (pathname === "/api/v1/settings" && req.method === "GET") {
+      return sendJson(req, res, 200, getPublicSettings(db));
     }
 
     if (pathname === "/api/v1/settings" && req.method === "POST") {
-      const body = await readJsonBody(req);
-      const db = loadDb();
-      db.settings = {
-        ...db.settings,
-        ...(typeof body.youtubeApiKey === "string" ? { youtubeApiKey: body.youtubeApiKey.trim() } : {}),
-        ...(typeof body.geminiApiKey === "string" ? { geminiApiKey: body.geminiApiKey.trim() } : {}),
-        ...(body.defaultCurrency ? { defaultCurrency: body.defaultCurrency } : {})
-      };
-      saveDb(db);
-      return sendJson(res, 200, {
+      requireManagerRole(currentUser);
+      const body = await readJsonBodyStrict(req);
+      const updated = saveSettingsAndSecrets(body, db);
+      return sendJson(req, res, 200, {
         ok: true,
-        hasYoutubeApiKey: Boolean(db.settings.youtubeApiKey),
-        hasGeminiApiKey: Boolean(db.settings.geminiApiKey)
+        ...updated
       });
     }
 
-    // NEXLEV PUBLIC API COMPATIBLE MIRROR
+    // ========================================================================
+    // 10. EXTERNAL / COMPATIBILITY ENDPOINTS
+    // ========================================================================
+
     if (pathname === "/api/external/channels/outliers" && req.method === "GET") {
-      const outliers = getViralOutlierVideos({
-        minOutlierRatio: Number(query.outlierScore || 1) * 1.5
-      });
-      return sendJson(res, 200, { data: outliers });
+      const { outliers } = queryOutlierVideos(
+        {
+          minOutlierRatio: Number(query.outlierScore || 1) * 1.5,
+          limit: Number(query.limit || 50)
+        },
+        db
+      );
+      return sendJson(req, res, 200, { data: outliers });
     }
 
     if (pathname === "/api/external/videos/rpm" && req.method === "GET") {
       const cls = classifyFacelessAndNiche(query.title || query.niche || "");
       const rpm = estimateChannelRpmAndRevenue({
         niche: cls.niche,
-        avgDurationMinutes: Number(query.durationMinutes || 15),
-        monthlyViews: Number(query.views || 250000)
+        avgDurationMinutes: query.durationMinutes ? Number(query.durationMinutes) : null,
+        monthlyViews: query.views ? Number(query.views) : null
       });
-      return sendJson(res, 200, { data: { ...cls, ...rpm } });
+      return sendJson(req, res, 200, { data: { ...cls, ...rpm } });
     }
 
-    // Serve static frontend files
-    let filePath = path.join(PUBLIC_DIR, pathname === "/" ? "index.html" : pathname);
-    if (!filePath.startsWith(PUBLIC_DIR)) {
-      return sendJson(res, 403, { error: "Forbidden" });
+    // CRITICAL: Any unmatched /api/* route MUST return 404 JSON, never index.html 200!
+    if (pathname.startsWith("/api/")) {
+      return sendJson(req, res, 404, {
+        error: `API route not found: ${req.method} ${pathname}`,
+        code: "API_NOT_FOUND",
+        path: pathname
+      });
     }
+
+    // ========================================================================
+    // 11. STATIC FRONTEND FILES (Single-Page App)
+    // ========================================================================
+
+    const safeRel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+    const filePath = path.resolve(PUBLIC_DIR, safeRel);
+    if (!filePath.startsWith(PUBLIC_DIR)) {
+      return sendJson(req, res, 403, { error: "Forbidden" });
+    }
+
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       const ext = path.extname(filePath);
       res.writeHead(200, {
-        "Content-Type": MIME_TYPES[ext] || "application/octet-stream"
+        "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+        "X-Content-Type-Options": "nosniff"
       });
       return fs.createReadStream(filePath).pipe(res);
     }
 
     const indexHtml = path.join(PUBLIC_DIR, "index.html");
     if (fs.existsSync(indexHtml)) {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      });
       return fs.createReadStream(indexHtml).pipe(res);
     }
 
-    return sendJson(res, 404, { error: "Not found" });
+    return sendJson(req, res, 404, { error: "Not found" });
   } catch (err) {
-    return sendJson(res, 500, { error: err?.message || "Internal server error" });
+    const status = Number(err?.statusCode) || 500;
+    return sendJson(req, res, status, {
+      error: err?.message || "Internal server error",
+      code: err?.code || "INTERNAL_ERROR"
+    });
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`🚀 Nexlev Clone Server running at http://localhost:${PORT}`);
-});
+export function createNexlevServer() {
+  return http.createServer(handleHttpRequest);
+}
+
+// Start server if executed directly as main script
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isMain) {
+  const server = createNexlevServer();
+  server.listen(PORT, HOST, () => {
+    console.log(`🚀 Nexlev Internal Team Studio running at http://${HOST}:${PORT}`);
+  });
+}

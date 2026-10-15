@@ -2,10 +2,10 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <title>Nexlev Studio</title>
+  <title>Nexlev Team Studio</title>
   <style>
     body {
-      width: 310px;
+      width: 330px;
       margin: 0;
       padding: 14px;
       background: #070b14;
@@ -31,10 +31,27 @@
       padding: 10px;
       margin-bottom: 10px;
     }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: #070b14;
+      color: #f8fafc;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
     .btn {
       display: block;
       width: 100%;
-      padding: 9px;
+      padding: 8px;
       border-radius: 8px;
       border: none;
       background: linear-gradient(135deg, #10b981, #06b6d4);
@@ -44,6 +61,12 @@
       text-align: center;
       text-decoration: none;
       box-sizing: border-box;
+      margin-top: 6px;
+    }
+    .btn-secondary {
+      background: #1e293b;
+      color: #e2e8f0;
+      font-weight: 600;
     }
     .muted {
       color: #94a3b8;
@@ -54,18 +77,35 @@
 </head>
 <body>
   <div class="hdr">
-    <span class="title">⚡ NEXLEV STUDIO</span>
+    <span class="title">⚡ NEXLEV TEAM</span>
     <span id="status-pill" style="color:#6ee7b7;font-weight:700;">Active</span>
   </div>
+
   <div class="card">
-    <strong>YouTube Overlay &amp; Outlier Detector</strong>
-    <div class="muted">Đã tự động gắn nhãn Outlier Score, RPM ước tính và nút Lưu Swipe trên mọi trang YouTube.com.</div>
+    <label style="display:flex;align-items:center;gap:8px;color:#f8fafc;font-weight:600;cursor:pointer;">
+      <input type="checkbox" id="toggle-overlay" checked />
+      Hiển thị Overlay trên YouTube.com
+    </label>
+    <div class="muted">Chỉ hiển thị Outlier khi kênh đủ mẫu baseline (&ge;3 video cùng kênh).</div>
   </div>
+
   <div class="card">
-    <strong>Số ý tưởng đã lưu từ Extension:</strong> <span id="saved-count">0</span>
+    <label for="ext-api-base">Backend URL (Local/LAN):</label>
+    <input type="text" id="ext-api-base" value="http://127.0.0.1:3088" />
+
+    <label for="ext-api-token">Employee API Token (Tùy chọn):</label>
+    <input type="password" id="ext-api-token" placeholder="nxl_admin_..." />
+
+    <button type="button" id="btn-save-config" class="btn btn-secondary">💾 Lưu Kết Nối</button>
+    <div id="config-msg" class="muted"></div>
   </div>
+
+  <div class="card">
+    <strong>Số ý tưởng đã lưu vào Team Library:</strong> <span id="saved-count">0</span>
+  </div>
+
   <button type="button" id="btn-open-dashboard" class="btn">
-    📊 Mở Nexlev Studio Dashboard
+    📊 Mở Nexlev Team Dashboard
   </button>
   <script src="popup.js"></script>
 </body>

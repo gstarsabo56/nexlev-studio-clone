@@ -1,4 +1,13 @@
 node_modules/
 .DS_Store
+.env
+.env.*
+!.env.example
 data/*.tmp
 data/*.log
+data/.secrets.local.json
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/backups/
+test-tmp/
