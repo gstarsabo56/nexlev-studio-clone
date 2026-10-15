@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Nexlev Studio — YouTube Outlier, RPM & Faceless Overlay",
+  "version": "1.0.0",
+  "description": "Displays Outlier Scores, estimated RPM, Faceless badges, Homepage Filters, and a live Thumbnail Tester directly on YouTube.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Nexlev Studio Overlay"
+  },
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "http://localhost:3088/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

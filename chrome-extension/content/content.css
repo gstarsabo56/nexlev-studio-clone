@@ -1,0 +1,83 @@
+.nx-yt-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  margin: 8px 16px 12px;
+  background: #0f1626;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 12px;
+  color: #f8fafc;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13px;
+  z-index: 2000;
+  flex-wrap: wrap;
+}
+
+.nx-yt-logo {
+  font-weight: 900;
+  color: #10b981;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+}
+
+.nx-yt-btn {
+  background: #162036;
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nx-yt-btn.active,
+.nx-yt-btn:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #10b981;
+  color: #6ee7b7;
+}
+
+.nx-yt-badge-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 4px 0;
+  font-family: Roboto, Arial, sans-serif;
+}
+
+.nx-yt-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  background: #0f1626;
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+}
+
+.nx-yt-pill.hot {
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.5);
+  background: rgba(244, 63, 94, 0.16);
+}
+
+.nx-yt-save-btn {
+  background: #162036;
+  color: #a5f3fc;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nx-yt-save-btn:hover {
+  background: rgba(6, 182, 212, 0.25);
+}

@@ -1,0 +1,17 @@
+{
+  "name": "nexlev-clone",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "/opt/homebrew/opt/node@24/bin/node src/server.mjs",
+    "mcp": "/opt/homebrew/opt/node@24/bin/node mcp-server/index.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "youtubei.js": "^18.1.0"
+  }
+}
