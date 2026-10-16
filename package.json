@@ -1,9 +1,20 @@
 {
   "name": "nexlev-studio-clone",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Internal YouTube Niche Research, Honest Provenance Metrics & Team Production Workflow Platform (Web + SQLite WAL + MCP + Chrome Extension)",
   "main": "src/server.mjs",
   "type": "module",
+  "exports": {
+    ".": "./src/server.mjs",
+    "./server": "./src/server.mjs",
+    "./engine": "./src/core/engine.mjs",
+    "./crawler": "./src/core/crawler.mjs",
+    "./sqlite-repo": "./src/core/sqlite-repo.mjs",
+    "./metrics": "./src/core/metrics.mjs",
+    "./parsers": "./src/core/parsers.mjs",
+    "./provenance": "./src/core/provenance.mjs",
+    "./mcp": "./mcp-server/index.mjs"
+  },
   "engines": {
     "node": ">=22.5.0"
   },

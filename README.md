@@ -73,6 +73,7 @@ npm start
 
 ## 📚 Tài liệu Kỹ thuật Chi tiết
 
+- [Hướng dẫn Tích hợp vào Công cụ / Hệ thống Khác (`docs/INTEGRATION_GUIDE.md`)](docs/INTEGRATION_GUIDE.md)
 - [Mô hình Dữ liệu & Schema SQLite (`docs/DATA_MODEL.md`)](docs/DATA_MODEL.md)
 - [Công thức Chỉ số & Giới hạn Trung thực (`docs/METRICS_AND_LIMITATIONS.md`)](docs/METRICS_AND_LIMITATIONS.md)
 - [Di trú Dữ liệu, Sao lưu & Phục hồi (`docs/MIGRATION_AND_BACKUP.md`)](docs/MIGRATION_AND_BACKUP.md)
