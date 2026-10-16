@@ -1,30 +1,87 @@
-// Nexlev Team Studio — YouTube Content Script Overlay (Batch 4)
-// Extracts canonical videoId/channelId/thumbnailUrl, uses same-channel baseline (never feed median!),
-// verifies res.ok before reporting "Đã lưu", and handles YouTube SPA navigation safely.
+// Nexlev Studio v2.1 — YouTube Content Script Overlay (Section 11 & T12)
+// - Uses multi-locale decimal/thousand count parsing ("1,2 Mio. Aufrufe" -> 1,200,000)
+// - Separates Shorts vs Long-form (>180s) when computing same-channel baseline
+// - Never injects a top homepage banner and never hides YouTube cards
+// - Batches DOM updates with requestAnimationFrame
+// - Strictly verifies response.ok === true before showing "Đã lưu"
 
-function parseViewsFromText(text = "") {
-  const clean = String(text || "").replace(/,/g, "");
-  const m = clean.match(
-    /([\d.]+)\s*([KMBkmb]|N|Tr|만|억|万|億)?\s*(views|lượt xem|회|回|次|Aufrufe|vues|visualizzazioni|weergaven|visualizações|vistas)/i
-  );
-  if (!m) return null;
-  const val = parseFloat(m[1]);
-  if (!Number.isFinite(val)) return null;
-  const unit = (m[2] || "").toUpperCase();
-  if (unit === "K" || unit === "N") return Math.round(val * 1_000);
-  if (unit === "만" || unit === "万") return Math.round(val * 10_000);
-  if (unit === "M" || unit === "TR") return Math.round(val * 1_000_000);
-  if (unit === "억" || unit === "億") return Math.round(val * 100_000_000);
-  if (unit === "B") return Math.round(val * 1_000_000_000);
-  return Math.round(val);
+const MULTIPLIER_UNITS = [
+  { pattern: /^(b|bn|billion|milliard|milliarden|mrd\.?|tỷ|ty)$/i, mult: 1_000_000_000 },
+  { pattern: /^(억|億)$/i, mult: 100_000_000 },
+  { pattern: /^(m|mio\.?|million|millions|mln|tr|triệu|trieu|mi)$/i, mult: 1_000_000 },
+  { pattern: /^(만|万)$/i, mult: 10_000 },
+  { pattern: /^(k|n|nghìn|nghin|ngàn|ngan|tsd\.?|mil)$/i, mult: 1_000 }
+];
+
+function parseNumericTokenMultiLocale(numStr, hasCompactUnit) {
+  const s = String(numStr || "").trim().replace(/\s+/g, "");
+  if (!s) return NaN;
+  if (hasCompactUnit) {
+    if (s.includes(",") && !s.includes(".")) {
+      return Number(s.replace(",", "."));
+    }
+    if (s.includes(",") && s.includes(".")) {
+      const lastComma = s.lastIndexOf(",");
+      const lastDot = s.lastIndexOf(".");
+      if (lastComma > lastDot) {
+        return Number(s.replace(/\./g, "").replace(",", "."));
+      }
+      return Number(s.replace(/,/g, ""));
+    }
+    return Number(s);
+  }
+  if (/^\d{1,3}(,\d{3})+$/.test(s)) return Number(s.replace(/,/g, ""));
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) return Number(s.replace(/\./g, ""));
+  return Number(s.replace(/,/g, ""));
 }
 
-function estimateScenarioRpmFromTitle(title = "") {
-  const lower = String(title || "").toLowerCase();
-  if (/finance|money|invest|bank|debt|economy|million|billion/.test(lower)) return 10.5;
-  if (/ai|agent|coding|mcp|software|tech/.test(lower)) return 8.8;
-  if (/history|roman|medieval|sleep|empire|ancient|crime|flight/.test(lower)) return 6.8;
-  return 5.2;
+function parseViewsFromText(text = "") {
+  const raw = String(text || "");
+  if (!raw) return null;
+  // Extract substring near view keywords across locales
+  const viewLineMatch = raw.match(
+    /([\d.,\s]+\s*(?:K|M|B|N|Tr|Mio\.?|Mrd\.?|Tsd\.?|만|억|万|億)?)\s*(?:views|lượt xem|회|回|次|Aufrufe|vues|visualizzazioni|weergaven|visualizações|vistas)/i
+  );
+  const candidate = viewLineMatch ? viewLineMatch[1].trim() : "";
+  if (!candidate) return null;
+
+  const tokenMatch = candidate.match(/^([0-9][0-9.,\s]*)\s*([^\d\s.,]+)?$/);
+  if (!tokenMatch) return null;
+  const numPart = tokenMatch[1].trim();
+  const unitPart = (tokenMatch[2] || "").trim().replace(/\.$/, "");
+
+  let mult = 1;
+  let hasCompactUnit = false;
+  if (unitPart) {
+    for (const u of MULTIPLIER_UNITS) {
+      if (u.pattern.test(unitPart) || u.pattern.test(`${unitPart}.`)) {
+        mult = u.mult;
+        hasCompactUnit = true;
+        break;
+      }
+    }
+    if (!hasCompactUnit) return null;
+  }
+
+  const base = parseNumericTokenMultiLocale(numPart, hasCompactUnit);
+  if (!Number.isFinite(base) || base < 0) return null;
+  return Math.round(base * mult);
+}
+
+function parseCardDurationSeconds(card) {
+  const badgeEl =
+    card.querySelector("ytd-thumbnail-overlay-time-status-renderer #text") ||
+    card.querySelector("badge-shape .yt-badge-shape__text") ||
+    card.querySelector("span.ytd-thumbnail-overlay-time-status-renderer");
+  const txt = (badgeEl?.textContent || "").trim();
+  if (!txt) return null;
+  if (/^(shorts|live|trực tiếp)$/i.test(txt)) return null;
+  const parts = txt.split(":").map((p) => p.trim());
+  if (parts.length < 2 || parts.length > 3) return null;
+  if (!parts.every((p) => /^\d+$/.test(p))) return null;
+  const nums = parts.map(Number);
+  if (nums.length === 2) return nums[0] * 60 + nums[1];
+  return nums[0] * 3600 + nums[1] * 60 + nums[2];
 }
 
 function extractCardMetadata(card) {
@@ -47,12 +104,18 @@ function extractCardMetadata(card) {
     }
   }
 
+  const durationSeconds = parseCardDurationSeconds(card);
+  const contentType = isShorts
+    ? "shorts"
+    : durationSeconds !== null && durationSeconds > 180
+      ? "long"
+      : "unknown";
+
   const titleEl =
     card.querySelector("#video-title") ||
     card.querySelector("a#video-title-link");
   const title = (titleEl?.textContent || "").trim();
 
-  // Channel info from card or current channel page URL
   const chLinkEl =
     card.querySelector("ytd-channel-name a[href]") ||
     card.querySelector("#channel-name a[href]") ||
@@ -106,6 +169,8 @@ function extractCardMetadata(card) {
     videoId,
     title,
     isShorts,
+    durationSeconds,
+    contentType,
     channelId,
     channelHandle,
     channelTitle,
@@ -124,57 +189,12 @@ function computeMedian(nums = []) {
     : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
-let currentMinOutlier = 0;
 let isProcessingBatch = false;
 let observerDebounceTimer = null;
 
 function isOnSingleChannelPage() {
   const p = window.location.pathname || "";
   return p.startsWith("/@") || p.startsWith("/channel/") || p.startsWith("/c/");
-}
-
-function ensureHomepageBar() {
-  if (document.querySelector(".nx-yt-bar")) return;
-  const target =
-    document.querySelector("ytd-rich-grid-renderer") ||
-    document.querySelector("#primary #contents");
-  if (!target || !target.parentElement) return;
-
-  const bar = document.createElement("div");
-  bar.className = "nx-yt-bar";
-  bar.innerHTML = `
-    <span class="nx-yt-logo">⚡ NEXLEV TEAM STUDIO</span>
-    <button type="button" class="nx-yt-btn active" data-nx-filter="0">Tất Cả Video</button>
-    <button type="button" class="nx-yt-btn" data-nx-filter="1.8">🔥 Outliers (&ge; 1.8x cùng kênh)</button>
-    <button type="button" class="nx-yt-btn" data-nx-filter="3.0">🚀 Super Outliers (&ge; 3.0x)</button>
-    <a href="http://127.0.0.1:3088" target="_blank" rel="noopener noreferrer" class="nx-yt-btn" style="text-decoration:none;margin-left:auto;">📊 Mở Team Dashboard</a>
-  `;
-
-  target.parentElement.insertBefore(bar, target);
-
-  bar.querySelectorAll("[data-nx-filter]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      bar.querySelectorAll("[data-nx-filter]").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      currentMinOutlier = parseFloat(btn.dataset.nxFilter || "0");
-      applyOutlierFilterToCards();
-    });
-  });
-}
-
-function applyOutlierFilterToCards() {
-  const cards = document.querySelectorAll(
-    "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer"
-  );
-  cards.forEach((card) => {
-    const status = card.dataset.nxOutlierStatus || "insufficient_data";
-    const ratio = parseFloat(card.dataset.nxOutlierRatio || "0");
-    if (currentMinOutlier > 0 && (status !== "derived" || ratio < currentMinOutlier)) {
-      card.style.display = "none";
-    } else {
-      card.style.display = "";
-    }
-  });
 }
 
 async function processVideoCardsBatch() {
@@ -189,8 +209,6 @@ async function processVideoCardsBatch() {
       }
     }
 
-    ensureHomepageBar();
-
     const allCards = Array.from(
       document.querySelectorAll(
         "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer"
@@ -198,23 +216,29 @@ async function processVideoCardsBatch() {
     );
     if (allCards.length === 0) return;
 
-    // If on a single channel page, compute same-channel median baseline when >= 3 videos exist
-    let sameChannelPageMedian = null;
-    let sameChannelSampleSize = 0;
+    // On a single channel page, compute format-stratified baselines (long vs shorts) when n >= 3
+    const sameChannelBaselines = {
+      long: { median: null, sampleSize: 0 },
+      shorts: { median: null, sampleSize: 0 }
+    };
     if (isOnSingleChannelPage()) {
-      const channelViews = allCards
-        .map((c) => extractCardMetadata(c).views)
-        .filter((v) => typeof v === "number" && v > 0);
-      if (channelViews.length >= 3) {
-        sameChannelPageMedian = computeMedian(channelViews);
-        sameChannelSampleSize = channelViews.length;
+      const extractedAll = allCards.map((c) => extractCardMetadata(c));
+      for (const fmt of ["long", "shorts"]) {
+        const fmtViews = extractedAll
+          .filter((m) => m.contentType === fmt && typeof m.views === "number" && m.views > 0)
+          .map((m) => m.views);
+        if (fmtViews.length >= 3) {
+          sameChannelBaselines[fmt] = {
+            median: computeMedian(fmtViews),
+            sampleSize: fmtViews.length
+          };
+        }
       }
     }
 
     const unprocessed = allCards.filter((c) => !c.dataset.nxProcessed);
     if (unprocessed.length === 0) return;
 
-    // Extract metadata for unprocessed cards and query backend for known channel baselines
     const metas = unprocessed.map((card) => ({
       card,
       meta: extractCardMetadata(card)
@@ -239,132 +263,145 @@ async function processVideoCardsBatch() {
           backendMetrics = res;
         }
       } catch {
-        // Offline or extension reload; fall back to insufficient_data unless on channel page
+        // Offline or unauthenticated
       }
     }
 
-    for (const { card, meta } of metas) {
-      if (!meta.title || !meta.videoId) continue;
-      card.dataset.nxProcessed = "1";
-      card.dataset.nxVideoId = meta.videoId;
+    // Batch DOM writes using requestAnimationFrame
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < metas.length; i += BATCH_SIZE) {
+      const slice = metas.slice(i, i + BATCH_SIZE);
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => {
+          for (const { card, meta } of slice) {
+            if (!meta.title || !meta.videoId) continue;
+            card.dataset.nxProcessed = "1";
+            card.dataset.nxVideoId = meta.videoId;
 
-      // Remove any stale badge strip before inserting
-      card.querySelectorAll(".nx-yt-badge-strip").forEach((el) => el.remove());
+            card.querySelectorAll(".nx-yt-badge-strip").forEach((el) => el.remove());
 
-      const vBackend = backendMetrics.videos?.[meta.videoId];
-      const chBackend =
-        (meta.channelId && backendMetrics.channels?.[meta.channelId]) ||
-        (meta.channelHandle && backendMetrics.channels?.[meta.channelHandle]);
+            const vBackend = backendMetrics.videos?.[meta.videoId];
+            const chBackend =
+              (meta.channelId && backendMetrics.channels?.[meta.channelId]) ||
+              (meta.channelHandle && backendMetrics.channels?.[meta.channelHandle]);
 
-      let outlierRatio = null;
-      let outlierStatus = "insufficient_data";
-      let sampleSize = 0;
+            let outlierRatio = null;
+            let outlierStatus = "insufficient_data";
+            let sampleSize = 0;
 
-      if (vBackend && vBackend.outlierStatus === "derived" && vBackend.outlierRatio !== null) {
-        outlierRatio = vBackend.outlierRatio;
-        outlierStatus = "derived";
-        sampleSize = vBackend.baselineSampleSize || 3;
-      } else if (
-        chBackend &&
-        chBackend.outlierStatus === "derived" &&
-        chBackend.medianViews > 0 &&
-        meta.views !== null
-      ) {
-        outlierRatio = Number((meta.views / chBackend.medianViews).toFixed(2));
-        outlierStatus = "derived";
-        sampleSize = chBackend.observedVideoSampleCount || 3;
-      } else if (sameChannelPageMedian && sameChannelPageMedian > 0 && meta.views !== null) {
-        outlierRatio = Number((meta.views / sameChannelPageMedian).toFixed(2));
-        outlierStatus = "derived";
-        sampleSize = sameChannelSampleSize;
-      }
-
-      card.dataset.nxOutlierStatus = outlierStatus;
-      card.dataset.nxOutlierRatio = outlierRatio !== null ? String(outlierRatio) : "0";
-
-      const rpm =
-        vBackend?.estimatedRpm ||
-        chBackend?.estimatedRpm ||
-        estimateScenarioRpmFromTitle(meta.title);
-
-      const strip = document.createElement("div");
-      strip.className = "nx-yt-badge-strip";
-
-      const outlierPill = document.createElement("span");
-      if (outlierStatus === "derived" && outlierRatio !== null) {
-        outlierPill.className = `nx-yt-pill ${outlierRatio >= 2.5 ? "hot" : ""}`;
-        outlierPill.textContent = `🔥 ${outlierRatio}x Outlier (n=${sampleSize})`;
-      } else {
-        outlierPill.className = "nx-yt-pill";
-        outlierPill.textContent = "⏳ Chưa đủ dữ liệu baseline";
-        outlierPill.title =
-          "Cần tối thiểu 3 video cùng kênh để tính Outlier (Không dùng median trang chủ).";
-      }
-
-      const rpmPill = document.createElement("span");
-      rpmPill.className = "nx-yt-pill";
-      rpmPill.textContent = `💎 ~$${rpm} RPM (Kịch bản)`;
-
-      const saveBtn = document.createElement("button");
-      saveBtn.type = "button";
-      saveBtn.className = "nx-yt-save-btn";
-      saveBtn.textContent = "🗂️ Lưu Ý Tưởng";
-
-      saveBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        saveBtn.disabled = true;
-        saveBtn.textContent = "⏳ Đang lưu...";
-
-        try {
-          const response = await chrome.runtime.sendMessage({
-            type: "SAVE_SWIPE_ITEM",
-            payload: {
-              videoId: meta.videoId,
-              channelId: meta.channelId || vBackend?.channelId || chBackend?.channelId || null,
-              canonicalUrl: meta.canonicalUrl,
-              thumbnailUrl: meta.thumbnailUrl,
-              title: meta.title,
-              channelTitle: meta.channelTitle,
-              channelHandle: meta.channelHandle || vBackend?.channelHandle || "",
-              outlierRatio,
-              views: meta.views,
-              estimatedRpm: rpm,
-              workflowStage: "discovered",
-              tags: [
-                "YouTube Extension",
-                outlierRatio !== null ? `${outlierRatio}x Outlier` : "Insufficient Baseline"
-              ],
-              notes: `Lưu từ YouTube (${meta.canonicalUrl})`
+            if (vBackend && vBackend.outlierStatus === "derived" && vBackend.outlierRatio !== null) {
+              outlierRatio = vBackend.outlierRatio;
+              outlierStatus = "derived";
+              sampleSize = vBackend.baselineSampleSize || 3;
+            } else if (
+              meta.contentType === "long" &&
+              chBackend &&
+              chBackend.outlierStatus === "derived" &&
+              chBackend.medianViews > 0 &&
+              meta.views !== null
+            ) {
+              outlierRatio = Number((meta.views / chBackend.medianViews).toFixed(2));
+              outlierStatus = "derived";
+              sampleSize = chBackend.observedVideoSampleCount || 3;
+            } else if (
+              (meta.contentType === "long" || meta.contentType === "shorts") &&
+              sameChannelBaselines[meta.contentType]?.median > 0 &&
+              meta.views !== null
+            ) {
+              const b = sameChannelBaselines[meta.contentType];
+              outlierRatio = Number((meta.views / b.median).toFixed(2));
+              outlierStatus = "derived";
+              sampleSize = b.sampleSize;
             }
-          });
 
-          // CRITICAL: Only show "✅ Đã lưu!" when backend responds ok === true!
-          if (response && response.ok === true) {
-            saveBtn.textContent = "✅ Đã lưu!";
-          } else {
-            saveBtn.disabled = false;
-            saveBtn.textContent = "❌ Lỗi lưu (Thử lại)";
-            saveBtn.title = response?.error || "Backend từ chối hoặc không phản hồi";
+            const rpm = vBackend?.estimatedRpm ?? chBackend?.estimatedRpm ?? null;
+
+            const strip = document.createElement("div");
+            strip.className = "nx-yt-badge-strip";
+
+            const outlierPill = document.createElement("span");
+            if (outlierStatus === "derived" && outlierRatio !== null) {
+              const cls =
+                outlierRatio >= 3 ? "positive" : outlierRatio >= 1.5 ? "warning" : "";
+              outlierPill.className = `nx-yt-pill ${cls}`;
+              outlierPill.textContent = `${outlierRatio.toFixed(1)}x (n=${sampleSize})`;
+            } else {
+              outlierPill.className = "nx-yt-pill";
+              outlierPill.textContent = "Chưa đủ mẫu";
+              outlierPill.title =
+                "Cần tối thiểu 3 video cùng định dạng từ cùng một kênh để tính Outlier.";
+            }
+            strip.appendChild(outlierPill);
+
+            if (rpm !== null && Number.isFinite(Number(rpm))) {
+              const rpmPill = document.createElement("span");
+              rpmPill.className = "nx-yt-pill";
+              rpmPill.textContent = `~$${Number(rpm).toFixed(2)} RPM`;
+              rpmPill.title = "RPM kịch bản ước tính từ kho dữ liệu Nexlev";
+              strip.appendChild(rpmPill);
+            }
+
+            const saveBtn = document.createElement("button");
+            saveBtn.type = "button";
+            saveBtn.className = "nx-yt-save-btn";
+            saveBtn.textContent = "+ Lưu ý tưởng";
+
+            saveBtn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              saveBtn.disabled = true;
+              saveBtn.textContent = "Đang lưu...";
+
+              try {
+                const response = await chrome.runtime.sendMessage({
+                  type: "SAVE_SWIPE_ITEM",
+                  payload: {
+                    videoId: meta.videoId,
+                    channelId: meta.channelId || vBackend?.channelId || chBackend?.channelId || null,
+                    canonicalUrl: meta.canonicalUrl,
+                    thumbnailUrl: meta.thumbnailUrl,
+                    title: meta.title,
+                    channelTitle: meta.channelTitle,
+                    channelHandle: meta.channelHandle || vBackend?.channelHandle || "",
+                    outlierRatio,
+                    views: meta.views,
+                    estimatedRpm: rpm,
+                    workflowStage: "discovered",
+                    tags: [
+                      "YouTube Extension",
+                      outlierRatio !== null ? `${outlierRatio}x Outlier` : "Insufficient Baseline"
+                    ],
+                    notes: `Lưu từ YouTube (${meta.canonicalUrl})`
+                  }
+                });
+
+                if (response && response.ok === true) {
+                  saveBtn.textContent = "Đã lưu";
+                } else {
+                  saveBtn.disabled = false;
+                  saveBtn.textContent = "Lỗi lưu (Thử lại)";
+                  saveBtn.title = response?.error || "Vui lòng kiểm tra API Token trong Popup Extension";
+                }
+              } catch (err) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = "Lỗi kết nối";
+                saveBtn.title = err?.message || "Lỗi kết nối tới service worker";
+              }
+            });
+
+            strip.appendChild(saveBtn);
+
+            const metaBlock =
+              card.querySelector("#meta") ||
+              card.querySelector("#details") ||
+              card.querySelector("#dismissible");
+            if (metaBlock) {
+              metaBlock.appendChild(strip);
+            }
           }
-        } catch (err) {
-          saveBtn.disabled = false;
-          saveBtn.textContent = "❌ Lỗi kết nối";
-          saveBtn.title = err?.message || "Lỗi kết nối tới service worker";
-        }
-      });
-
-      strip.appendChild(outlierPill);
-      strip.appendChild(rpmPill);
-      strip.appendChild(saveBtn);
-
-      const metaBlock =
-        card.querySelector("#meta") ||
-        card.querySelector("#details") ||
-        card.querySelector("#dismissible");
-      if (metaBlock) {
-        metaBlock.appendChild(strip);
-      }
+          resolve();
+        })
+      );
     }
   } finally {
     isProcessingBatch = false;
@@ -378,7 +415,6 @@ function scheduleProcessCards() {
   }, 300);
 }
 
-// Reset processed markers on YouTube SPA navigation
 window.addEventListener("yt-navigate-finish", () => {
   document
     .querySelectorAll("[data-nx-processed]")

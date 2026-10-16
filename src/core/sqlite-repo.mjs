@@ -26,16 +26,25 @@ export const SQLITE_DB_PATH =
 export const SECRETS_FILE_PATH =
   process.env.NEXLEV_SECRETS_PATH || path.resolve(DATA_DIR, ".secrets.local.json");
 
+export function getActiveSqlitePath(customPath = null) {
+  return customPath || process.env.NEXLEV_SQLITE_PATH || SQLITE_DB_PATH;
+}
+
+export function getActiveSecretsPath() {
+  return process.env.NEXLEV_SECRETS_PATH || SECRETS_FILE_PATH;
+}
+
 export { DEFAULT_MIN_OUTLIER_SAMPLE_SIZE };
 
 const DEMO_CHANNEL_IDS = new Set(SEED_CHANNELS.map((c) => c.id));
+const DEMO_SWIPE_IDS = new Set(INITIAL_SWIPE_ITEMS.map((i) => i.id));
 
 let dbInstance = null;
 let currentDbPath = null;
 let migrationCheckedForPath = null;
 
 export function getSqliteDb(customPath = null) {
-  const targetPath = customPath || SQLITE_DB_PATH;
+  const targetPath = getActiveSqlitePath(customPath);
   if (dbInstance && currentDbPath === targetPath) {
     return dbInstance;
   }
@@ -55,11 +64,13 @@ export function ensureDbMigrated(customDb = null) {
   if (customDb) {
     initSchema(customDb);
     migrateLegacyJsonToSqlite(customDb, LEGACY_JSON_PATH);
+    applyV21ReviewFixesMigration(customDb);
     return customDb;
   }
   const db = getSqliteDb();
   if (migrationCheckedForPath !== currentDbPath) {
     migrateLegacyJsonToSqlite(db, LEGACY_JSON_PATH);
+    applyV21ReviewFixesMigration(db);
     migrationCheckedForPath = currentDbPath;
   }
   return db;
@@ -74,6 +85,7 @@ export function closeSqliteDb() {
     }
     dbInstance = null;
     currentDbPath = null;
+    migrationCheckedForPath = null;
   }
 }
 
@@ -223,10 +235,14 @@ export function initSchema(db) {
       video_count INTEGER,
       source TEXT,
       note TEXT,
+      scope TEXT DEFAULT 'channel_total_views',
+      cohort_hash TEXT DEFAULT '',
+      coverage_count INTEGER DEFAULT 0,
       collected_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_snapshots_entity ON metric_snapshots(entity_type, entity_id, collected_at);
+    CREATE INDEX IF NOT EXISTS idx_snapshots_channel ON metric_snapshots(channel_id, entity_type, collected_at);
 
     CREATE TABLE IF NOT EXISTS discovery_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -270,6 +286,11 @@ export function initSchema(db) {
       error_text TEXT,
       request_count INTEGER DEFAULT 0,
       cancel_requested INTEGER DEFAULT 0,
+      worker_id TEXT DEFAULT NULL,
+      lease_until TEXT DEFAULT NULL,
+      heartbeat_at TEXT DEFAULT NULL,
+      actor_username TEXT DEFAULT '',
+      dedupe_key TEXT DEFAULT NULL,
       started_at TEXT,
       completed_at TEXT,
       created_at TEXT NOT NULL
@@ -303,9 +324,17 @@ export function initSchema(db) {
       result_url TEXT DEFAULT '',
       published_video_url TEXT DEFAULT '',
       brief_markdown TEXT DEFAULT '',
+      brief_status TEXT DEFAULT 'empty',
       tags_json TEXT DEFAULT '[]',
       notes TEXT DEFAULT '',
       source TEXT DEFAULT 'manual',
+      data_origin TEXT NOT NULL DEFAULT 'observed',
+      metrics_source_status TEXT NOT NULL DEFAULT 'unknown',
+      metrics_as_of TEXT DEFAULT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      archived_at TEXT DEFAULT NULL,
+      approved_by TEXT DEFAULT '',
+      approved_at TEXT DEFAULT '',
       created_by TEXT DEFAULT '',
       updated_by TEXT DEFAULT '',
       saved_at TEXT NOT NULL,
@@ -314,6 +343,49 @@ export function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_swipe_folder ON swipe_items(folder_id);
     CREATE INDEX IF NOT EXISTS idx_swipe_stage ON swipe_items(workflow_stage);
+
+    CREATE TABLE IF NOT EXISTS work_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      swipe_item_id TEXT NOT NULL,
+      actor_user_id TEXT,
+      actor_username TEXT NOT NULL,
+      action TEXT NOT NULL,
+      before_json TEXT,
+      after_json TEXT,
+      note TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_work_activity_item ON work_activity(swipe_item_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS brief_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      swipe_item_id TEXT NOT NULL,
+      revision_number INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      brief_markdown TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_brief_revisions_item ON brief_revisions(swipe_item_id, revision_number DESC);
+
+    CREATE TABLE IF NOT EXISTS import_targets (
+      id TEXT PRIMARY KEY,
+      raw_input TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      canonical_url TEXT,
+      resolved_channel_id TEXT,
+      resolved_video_id TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      reason TEXT,
+      requested_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_import_targets_status ON import_targets(status, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS filter_templates (
       id TEXT PRIMARY KEY,
@@ -359,8 +431,28 @@ export function initSchema(db) {
   ensureColumn(db, "swipe_items", "result_url", "TEXT DEFAULT ''");
   ensureColumn(db, "swipe_items", "created_by", "TEXT DEFAULT ''");
   ensureColumn(db, "swipe_items", "updated_by", "TEXT DEFAULT ''");
+  ensureColumn(db, "swipe_items", "brief_status", "TEXT DEFAULT 'empty'");
+  ensureColumn(db, "swipe_items", "data_origin", "TEXT NOT NULL DEFAULT 'observed'");
+  ensureColumn(db, "swipe_items", "metrics_source_status", "TEXT NOT NULL DEFAULT 'unknown'");
+  ensureColumn(db, "swipe_items", "metrics_as_of", "TEXT DEFAULT NULL");
+  ensureColumn(db, "swipe_items", "revision", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "swipe_items", "archived_at", "TEXT DEFAULT NULL");
+  ensureColumn(db, "swipe_items", "approved_by", "TEXT DEFAULT ''");
+  ensureColumn(db, "swipe_items", "approved_at", "TEXT DEFAULT ''");
+
   ensureColumn(db, "channels", "watchlist_note", "TEXT DEFAULT ''");
   ensureColumn(db, "channels", "watchlist_added_by", "TEXT DEFAULT ''");
+  ensureColumn(db, "channels", "watchlist_added_at", "TEXT DEFAULT ''");
+
+  ensureColumn(db, "crawl_jobs", "worker_id", "TEXT DEFAULT NULL");
+  ensureColumn(db, "crawl_jobs", "lease_until", "TEXT DEFAULT NULL");
+  ensureColumn(db, "crawl_jobs", "heartbeat_at", "TEXT DEFAULT NULL");
+  ensureColumn(db, "crawl_jobs", "actor_username", "TEXT DEFAULT ''");
+  ensureColumn(db, "crawl_jobs", "dedupe_key", "TEXT DEFAULT NULL");
+
+  ensureColumn(db, "metric_snapshots", "scope", "TEXT DEFAULT 'channel_total_views'");
+  ensureColumn(db, "metric_snapshots", "cohort_hash", "TEXT DEFAULT ''");
+  ensureColumn(db, "metric_snapshots", "coverage_count", "INTEGER DEFAULT 0");
 
   ensureDefaultUsers(db);
 }
@@ -382,6 +474,28 @@ function ensureColumn(db, tableName, colName, colDef) {
 
 function hashPassword(password, salt) {
   return crypto.scryptSync(String(password), String(salt), 64).toString("hex");
+}
+
+export function getUserCapabilities(role) {
+  const isManager = role === "manager";
+  return {
+    canApproveIdea: isManager,
+    canAssignWork: isManager,
+    canEditAnyWork: isManager,
+    canDeleteAnyWork: isManager,
+    canManageTeam: isManager,
+    canManageSecrets: isManager,
+    canManageSchedule: isManager,
+    canCollect: true,
+    canSaveIdea: true,
+    canCreateBrief: true,
+    canUpdateOwnAssignedWork: true
+  };
+}
+
+export function maskApiToken(val = "") {
+  if (!val || val.length < 10) return "";
+  return `${val.slice(0, 6)}••••${val.slice(-4)}`;
 }
 
 export function ensureDefaultUsers(db) {
@@ -472,7 +586,10 @@ export function authenticateUser(db, username, password) {
       username: row.username,
       displayName: row.display_name,
       role: row.role,
-      apiToken: row.api_token
+      hasApiToken: Boolean(row.api_token),
+      apiTokenMasked: maskApiToken(row.api_token),
+      apiTokenPreview: maskApiToken(row.api_token),
+      capabilities: getUserCapabilities(row.role)
     }
   };
 }
@@ -480,6 +597,39 @@ export function authenticateUser(db, username, password) {
 export function revokeUserSession(db, token) {
   if (!token) return;
   db.prepare("DELETE FROM user_sessions WHERE token = ?").run(String(token));
+}
+
+export function revokeAllUserSessions(db, userId) {
+  if (!userId) return;
+  db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(String(userId));
+}
+
+export function rotateUserApiToken(db, userId) {
+  const row = db.prepare("SELECT * FROM users WHERE id = ? AND is_active = 1").get(String(userId));
+  if (!row) {
+    const err = new Error("Không tìm thấy tài khoản hoạt động để đổi API token.");
+    err.statusCode = 404;
+    throw err;
+  }
+  const nextToken = `nxl_${row.username}_${crypto.randomBytes(18).toString("hex")}`;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE users SET api_token = ?, updated_at = ? WHERE id = ?").run(
+    nextToken,
+    now,
+    row.id
+  );
+  return {
+    apiToken: nextToken,
+    apiTokenMasked: maskApiToken(nextToken),
+    apiTokenPreview: maskApiToken(nextToken),
+    updatedAt: now
+  };
+}
+
+export function getPersonalApiTokenForUser(db, userId) {
+  const row = db.prepare("SELECT api_token FROM users WHERE id = ? AND is_active = 1").get(String(userId));
+  if (!row) return null;
+  return row.api_token || "";
 }
 
 export function resolveUserFromToken(db, rawToken) {
@@ -506,7 +656,10 @@ export function resolveUserFromToken(db, rawToken) {
       username: sess.username,
       displayName: sess.display_name,
       role: sess.role,
-      apiToken: sess.api_token
+      hasApiToken: Boolean(sess.api_token),
+      apiTokenMasked: maskApiToken(sess.api_token),
+      apiTokenPreview: maskApiToken(sess.api_token),
+      capabilities: getUserCapabilities(sess.role)
     };
   }
 
@@ -520,11 +673,14 @@ export function resolveUserFromToken(db, rawToken) {
       username: apiUser.username,
       displayName: apiUser.display_name,
       role: apiUser.role,
-      apiToken: apiUser.api_token
+      hasApiToken: Boolean(apiUser.api_token),
+      apiTokenMasked: maskApiToken(apiUser.api_token),
+      apiTokenPreview: maskApiToken(apiUser.api_token),
+      capabilities: getUserCapabilities(apiUser.role)
     };
   }
 
-  // 3. Check system localApiToken from .secrets.local.json
+  // 3. Check system localApiToken from .secrets.local.json (when explicitly supplied as Bearer token)
   const secrets = loadSecrets();
   if (secrets.localApiToken && token === secrets.localApiToken) {
     const adminRow = db
@@ -536,7 +692,10 @@ export function resolveUserFromToken(db, rawToken) {
         username: adminRow.username,
         displayName: adminRow.display_name,
         role: adminRow.role,
-        apiToken: adminRow.api_token
+        hasApiToken: Boolean(adminRow.api_token),
+        apiTokenMasked: maskApiToken(adminRow.api_token),
+        apiTokenPreview: maskApiToken(adminRow.api_token),
+        capabilities: getUserCapabilities(adminRow.role)
       };
     }
   }
@@ -544,7 +703,7 @@ export function resolveUserFromToken(db, rawToken) {
   return null;
 }
 
-export function listTeamUsers(db, { includeTokens = false } = {}) {
+export function listTeamUsers(db) {
   const rows = db.prepare("SELECT * FROM users ORDER BY role ASC, username ASC").all();
   return rows.map((r) => ({
     id: r.id,
@@ -552,7 +711,9 @@ export function listTeamUsers(db, { includeTokens = false } = {}) {
     displayName: r.display_name,
     role: r.role,
     isActive: Boolean(r.is_active),
-    ...(includeTokens ? { apiToken: r.api_token } : {}),
+    hasApiToken: Boolean(r.api_token),
+    apiTokenMasked: maskApiToken(r.api_token),
+    apiTokenPreview: maskApiToken(r.api_token),
     createdAt: r.created_at,
     updatedAt: r.updated_at
   }));
@@ -566,17 +727,20 @@ export function createTeamUser(db, { username, displayName, role = "member", pas
   if (!cleanUser || cleanUser.length < 2) {
     const err = new Error("Username phải có ít nhất 2 ký tự hợp lệ (a-z, 0-9, _, ., -).");
     err.statusCode = 400;
+    err.code = "INVALID_USERNAME";
     throw err;
   }
   if (!password || String(password).length < 6) {
     const err = new Error("Mật khẩu phải có ít nhất 6 ký tự.");
     err.statusCode = 400;
+    err.code = "INVALID_PASSWORD";
     throw err;
   }
   const existing = db.prepare("SELECT id FROM users WHERE LOWER(username) = ?").get(cleanUser);
   if (existing) {
     const err = new Error(`Username "${cleanUser}" đã tồn tại.`);
     err.statusCode = 409;
+    err.code = "DUPLICATE_USERNAME";
     throw err;
   }
 
@@ -609,7 +773,7 @@ export function createTeamUser(db, { username, displayName, role = "member", pas
     displayName: String(displayName || cleanUser).trim(),
     role: validRole,
     isActive: true,
-    apiToken,
+    apiTokenMasked: maskApiToken(apiToken),
     createdAt: now
   };
 }
@@ -619,6 +783,7 @@ export function updateTeamUser(db, id, patch = {}) {
   if (!existing) {
     const err = new Error(`Không tìm thấy nhân viên "${id}".`);
     err.statusCode = 404;
+    err.code = "USER_NOT_FOUND";
     throw err;
   }
 
@@ -633,9 +798,23 @@ export function updateTeamUser(db, id, patch = {}) {
 
   let nextSalt = existing.password_salt;
   let nextHash = existing.password_hash;
-  if (typeof patch.password === "string" && patch.password.trim().length >= 6) {
+  let nextApiToken = existing.api_token;
+  const passwordChanged =
+    typeof patch.password === "string" && patch.password.trim().length >= 6;
+  const deactivated = existing.is_active === 1 && nextActive === 0;
+  const roleChanged = existing.role !== nextRole;
+
+  if (passwordChanged) {
     nextSalt = crypto.randomBytes(16).toString("hex");
     nextHash = hashPassword(patch.password.trim(), nextSalt);
+  }
+
+  // T01: Revoke all active sessions & rotate personal API token when password changes or user is deactivated
+  if (passwordChanged || deactivated || patch.rotateApiToken === true) {
+    nextApiToken = `nxl_${existing.username}_${crypto.randomBytes(18).toString("hex")}`;
+    revokeAllUserSessions(db, existing.id);
+  } else if (roleChanged) {
+    // Ensure capabilities are refreshed
   }
 
   const now = new Date().toISOString();
@@ -645,10 +824,11 @@ export function updateTeamUser(db, id, patch = {}) {
       role = ?,
       password_salt = ?,
       password_hash = ?,
+      api_token = ?,
       is_active = ?,
       updated_at = ?
     WHERE id = ?
-  `).run(nextDisplayName, nextRole, nextSalt, nextHash, nextActive, now, id);
+  `).run(nextDisplayName, nextRole, nextSalt, nextHash, nextApiToken, nextActive, now, id);
 
   return {
     id: existing.id,
@@ -656,6 +836,8 @@ export function updateTeamUser(db, id, patch = {}) {
     displayName: nextDisplayName,
     role: nextRole,
     isActive: Boolean(nextActive),
+    apiTokenMasked: maskApiToken(nextApiToken),
+    sessionsRevoked: passwordChanged || deactivated || Boolean(patch.rotateApiToken),
     updatedAt: now
   };
 }
@@ -666,10 +848,11 @@ export function updateTeamUser(db, id, patch = {}) {
 // ============================================================================
 
 export function loadSecrets() {
+  const secretsPath = getActiveSecretsPath();
   let fileSecrets = {};
-  if (fs.existsSync(SECRETS_FILE_PATH)) {
+  if (fs.existsSync(secretsPath)) {
     try {
-      fileSecrets = JSON.parse(fs.readFileSync(SECRETS_FILE_PATH, "utf8"));
+      fileSecrets = JSON.parse(fs.readFileSync(secretsPath, "utf8"));
     } catch {
       fileSecrets = {};
     }
@@ -689,10 +872,11 @@ export function loadSecrets() {
 }
 
 function saveSecretsFile(secretsObj) {
-  fs.mkdirSync(path.dirname(SECRETS_FILE_PATH), { recursive: true });
-  const tmp = `${SECRETS_FILE_PATH}.${process.pid}.tmp`;
+  const secretsPath = getActiveSecretsPath();
+  fs.mkdirSync(path.dirname(secretsPath), { recursive: true });
+  const tmp = `${secretsPath}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(secretsObj, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, SECRETS_FILE_PATH);
+  fs.renameSync(tmp, secretsPath);
 }
 
 /**
@@ -781,12 +965,21 @@ export function upsertChannelAndVideos(
     discoveryMarket = null, // { countryCode, languageCode, seedKeyword, source }
     videos = [],
     dataOrigin = "observed",
-    minOutlierSampleSize = DEFAULT_MIN_OUTLIER_SAMPLE_SIZE,
-    recordSnapshot = false,
+    minOutlierSampleSize = null,
+    recordSnapshot = true,
     collectedAt = new Date().toISOString()
   }
 ) {
   if (!channelId) throw new Error("channelId is required for upsertChannelAndVideos");
+
+  const configuredMinSample =
+    minOutlierSampleSize !== null && minOutlierSampleSize !== undefined
+      ? Number(minOutlierSampleSize)
+      : Number(getAppSetting(db, "minOutlierSampleSize", DEFAULT_MIN_OUTLIER_SAMPLE_SIZE));
+  const effectiveMinSampleSize = Math.max(
+    3,
+    Number.isFinite(configuredMinSample) ? Math.round(configuredMinSample) : DEFAULT_MIN_OUTLIER_SAMPLE_SIZE
+  );
 
   return withTransaction(db, () => {
     const existingCh = db
@@ -806,9 +999,9 @@ export function upsertChannelAndVideos(
         description: row.description || "",
         thumbnailUrl: row.thumbnail_url,
         canonicalUrl: row.canonical_url || `https://www.youtube.com/watch?v=${row.video_id}`,
-        contentType: row.content_type !== "unknown" ? row.content_type : null,
+        contentType: row.content_type && row.content_type !== "unknown" ? row.content_type : null,
         views: row.views,
-        viewsStatus: row.views_status || "observed",
+        viewsStatus: row.views_status || "unknown",
         viewsIsRounded: Boolean(row.views_is_rounded),
         likes: row.likes,
         comments: row.comments,
@@ -817,68 +1010,133 @@ export function upsertChannelAndVideos(
         publishedAt: row.published_at,
         publishedDaysAgo: row.published_days_ago,
         publishedStatus: row.published_status || "unknown",
-        dataOrigin: row.data_origin || dataOrigin,
-        source: row.source || dataOrigin,
+        dataOrigin: row.data_origin || "observed",
+        source: row.source || row.data_origin || "observed",
         collectedAt: row.collected_at || collectedAt
       });
     }
 
-    // Merge incoming videos
+    // Merge incoming videos with provenance & timestamp protection (T06)
     for (const v of videos || []) {
       const vid = v.videoId || v.video_id;
       if (!vid) continue;
-      const prev = mergedVideoMap.get(vid) || {};
-      mergedVideoMap.set(vid, {
-        videoId: vid,
-        title: v.title || prev.title || `Video ${vid}`,
-        description: v.description ?? prev.description ?? "",
-        thumbnailUrl:
-          v.thumbnailUrl ||
-          prev.thumbnailUrl ||
-          `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
-        canonicalUrl:
-          v.canonicalUrl ||
-          prev.canonicalUrl ||
-          `https://www.youtube.com/watch?v=${vid}`,
-        contentType: v.contentType || prev.contentType || null,
-        views:
-          typeof v.views === "number" && Number.isFinite(v.views)
-            ? Math.round(v.views)
-            : prev.views ?? null,
-        viewsStatus:
-          typeof v.views === "number" && Number.isFinite(v.views)
-            ? v.viewsStatus || "observed"
-            : prev.viewsStatus || "unknown",
-        viewsIsRounded:
-          v.viewsIsRounded !== undefined
-            ? Boolean(v.viewsIsRounded)
-            : Boolean(prev.viewsIsRounded),
-        likes:
-          typeof v.likes === "number" && Number.isFinite(v.likes)
-            ? Math.round(v.likes)
-            : prev.likes ?? null,
-        comments:
-          typeof v.comments === "number" && Number.isFinite(v.comments)
-            ? Math.round(v.comments)
-            : prev.comments ?? null,
-        durationSeconds:
-          typeof v.durationSeconds === "number"
-            ? v.durationSeconds
-            : prev.durationSeconds ?? null,
-        durationMinutes:
-          typeof v.durationMinutes === "number" && Number.isFinite(v.durationMinutes)
-            ? v.durationMinutes
-            : prev.durationMinutes ?? null,
-        publishedAt: v.publishedAt || prev.publishedAt || null,
-        publishedDaysAgo:
-          typeof v.publishedDaysAgo === "number" && Number.isFinite(v.publishedDaysAgo)
-            ? v.publishedDaysAgo
-            : prev.publishedDaysAgo ?? null,
-        publishedStatus: v.publishedStatus || prev.publishedStatus || "unknown",
-        dataOrigin: v.dataOrigin || prev.dataOrigin || dataOrigin,
-        source: v.source || prev.source || dataOrigin,
-        collectedAt: v.collectedAt || collectedAt
-      });
+      const prev = mergedVideoMap.get(vid);
+      const incomingOrigin = v.dataOrigin || dataOrigin || "observed";
+      const incomingCollectedAt = v.collectedAt || collectedAt;
+      const incomingTs = Date.parse(incomingCollectedAt) || 0;
+      const prevTs = prev?.collectedAt ? Date.parse(prev.collectedAt) || 0 : 0;
+
+      // Determine if incoming observation is allowed to overwrite existing video metadata/metrics:
+      // 1. No previous record
+      // 2. Upgrading from legacy_unverified / demo to observed
+      // 3. Same or stronger provenance with a timestamp >= previous collected_at
+      const isUpgradeToObserved =
+        incomingOrigin === "observed" && prev && prev.dataOrigin !== "observed";
+      const isFresherOrEqual =
+        !prev ||
+        isUpgradeToObserved ||
+        ( !(prev.dataOrigin === "observed" && incomingOrigin !== "observed") &&
+          incomingTs >= prevTs );
+
+      const incomingHasViews = typeof v.views === "number" && Number.isFinite(v.views) && v.views >= 0;
+      const incomingViewsStatus = incomingHasViews
+        ? v.viewsStatus || (incomingOrigin === "observed" ? "observed" : incomingOrigin)
+        : v.viewsStatus || "unknown";
+
+      if (!prev) {
+        mergedVideoMap.set(vid, {
+          videoId: vid,
+          title: v.title || `Video ${vid}`,
+          description: v.description ?? "",
+          thumbnailUrl: v.thumbnailUrl || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+          canonicalUrl: v.canonicalUrl || `https://www.youtube.com/watch?v=${vid}`,
+          contentType: v.contentType || null,
+          isShorts: v.isShorts,
+           isLive: v.isLive,
+          aspectRatio: v.aspectRatio || null,
+          views: incomingHasViews ? Math.round(v.views) : null,
+          viewsStatus: incomingViewsStatus,
+          viewsIsRounded: Boolean(v.viewsIsRounded),
+          likes: typeof v.likes === "number" && Number.isFinite(v.likes) ? Math.round(v.likes) : null,
+          comments:
+            typeof v.comments === "number" && Number.isFinite(v.comments) ? Math.round(v.comments) : null,
+          durationSeconds: typeof v.durationSeconds === "number" ? v.durationSeconds : null,
+          durationMinutes:
+            typeof v.durationMinutes === "number" && Number.isFinite(v.durationMinutes)
+              ? v.durationMinutes
+              : null,
+          publishedAt: v.publishedAt || null,
+          publishedDaysAgo:
+            typeof v.publishedDaysAgo === "number" && Number.isFinite(v.publishedDaysAgo)
+              ? v.publishedDaysAgo
+              : null,
+          publishedStatus: v.publishedStatus || "unknown",
+          dataOrigin: incomingOrigin,
+          source: v.source || incomingOrigin,
+          collectedAt: incomingCollectedAt
+        });
+      } else if (isFresherOrEqual) {
+        mergedVideoMap.set(vid, {
+          videoId: vid,
+          title: v.title || prev.title || `Video ${vid}`,
+          description:
+            v.description !== undefined && v.description !== ""
+              ? v.description
+              : prev.description || "",
+          thumbnailUrl:
+            v.thumbnailUrl || prev.thumbnailUrl || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+          canonicalUrl:
+            v.canonicalUrl || prev.canonicalUrl || `https://www.youtube.com/watch?v=${vid}`,
+          contentType:
+            v.contentType && v.contentType !== "unknown"
+              ? v.contentType
+              : prev.contentType || null,
+          isShorts: v.isShorts !== undefined ? v.isShorts : prev.isShorts,
+          isLive: v.isLive !== undefined ? v.isLive : prev.isLive,
+          aspectRatio: v.aspectRatio || prev.aspectRatio || null,
+          views: incomingHasViews ? Math.round(v.views) : prev.views ?? null,
+          viewsStatus: incomingHasViews ? incomingViewsStatus : prev.viewsStatus || "unknown",
+          viewsIsRounded:
+            v.viewsIsRounded !== undefined
+              ? Boolean(v.viewsIsRounded)
+              : Boolean(prev.viewsIsRounded),
+          likes:
+            typeof v.likes === "number" && Number.isFinite(v.likes)
+              ? Math.round(v.likes)
+              : isUpgradeToObserved
+                ? null
+                : prev.likes ?? null,
+          comments:
+            typeof v.comments === "number" && Number.isFinite(v.comments)
+              ? Math.round(v.comments)
+              : isUpgradeToObserved
+                ? null
+                : prev.comments ?? null,
+          durationSeconds:
+            typeof v.durationSeconds === "number"
+              ? v.durationSeconds
+              : prev.durationSeconds ?? null,
+          durationMinutes:
+            typeof v.durationMinutes === "number" && Number.isFinite(v.durationMinutes)
+              ? v.durationMinutes
+              : prev.durationMinutes ?? null,
+          publishedAt: v.publishedAt || prev.publishedAt || null,
+          publishedDaysAgo:
+            typeof v.publishedDaysAgo === "number" && Number.isFinite(v.publishedDaysAgo)
+              ? v.publishedDaysAgo
+              : prev.publishedDaysAgo ?? null,
+          publishedStatus:
+            v.publishedStatus && v.publishedStatus !== "unknown"
+              ? v.publishedStatus
+              : prev.publishedStatus || "unknown",
+          dataOrigin:
+            incomingOrigin === "observed" || prev.dataOrigin === "observed"
+              ? "observed"
+              : incomingOrigin,
+          source: v.source || prev.source || incomingOrigin,
+          collectedAt: incomingCollectedAt
+        });
+      }
     }
 
     // Preserve previously observed channel-level fields if incoming discovery doesn't have them
@@ -920,10 +1178,25 @@ export function upsertChannelAndVideos(
         ? existingCh.content_language
         : null);
 
-    const finalOrigin =
-      existingCh?.data_origin === "observed" || dataOrigin === "observed"
-        ? "observed"
-        : dataOrigin || existingCh?.data_origin || "observed";
+    const allMergedVideos = Array.from(mergedVideoMap.values());
+    const hasAnyObservedVideo = allMergedVideos.some((v) => v.dataOrigin === "observed");
+    const allVideosLegacyUnverified =
+      allMergedVideos.length > 0 &&
+      allMergedVideos.every((v) => v.dataOrigin === "legacy_unverified");
+
+    // T06: Never promote a channel to 'observed' if all its videos are 'legacy_unverified' and no channel-level stats were observed
+    let finalOrigin = dataOrigin || existingCh?.data_origin || "observed";
+    if (DEMO_CHANNEL_IDS.has(channelId) || dataOrigin === "demo") {
+      finalOrigin = hasAnyObservedVideo ? "observed" : "demo";
+    } else if (
+      allVideosLegacyUnverified &&
+      finalObservedSubscribers === null &&
+      finalObservedTotalViews === null
+    ) {
+      finalOrigin = "legacy_unverified";
+    } else if (hasAnyObservedVideo || existingCh?.data_origin === "observed" || dataOrigin === "observed") {
+      finalOrigin = "observed";
+    }
 
     const honest = buildHonestChannelRecord({
       id: channelId,
@@ -948,8 +1221,8 @@ export function upsertChannelAndVideos(
         languageCode: existingCh?.discovery_lang || null,
         seedKeyword: existingCh?.discovery_keyword || null
       },
-      videos: Array.from(mergedVideoMap.values()),
-      minOutlierSampleSize,
+      videos: allMergedVideos,
+      minOutlierSampleSize: effectiveMinSampleSize,
       dataOrigin: finalOrigin,
       collectedAt
     });
@@ -1153,17 +1426,19 @@ export function upsertChannelAndVideos(
       ON CONFLICT(video_id) DO UPDATE SET
         channel_id = excluded.channel_id,
         title = excluded.title,
+        description = excluded.description,
         thumbnail_url = COALESCE(excluded.thumbnail_url, videos.thumbnail_url),
+        canonical_url = COALESCE(excluded.canonical_url, videos.canonical_url),
         content_type = excluded.content_type,
-        views = COALESCE(excluded.views, videos.views),
+        views = excluded.views,
         views_status = excluded.views_status,
         views_is_rounded = excluded.views_is_rounded,
-        likes = COALESCE(excluded.likes, videos.likes),
-        comments = COALESCE(excluded.comments, videos.comments),
-        duration_seconds = COALESCE(excluded.duration_seconds, videos.duration_seconds),
-        duration_minutes = COALESCE(excluded.duration_minutes, videos.duration_minutes),
-        published_at = COALESCE(excluded.published_at, videos.published_at),
-        published_days_ago = COALESCE(excluded.published_days_ago, videos.published_days_ago),
+        likes = excluded.likes,
+        comments = excluded.comments,
+        duration_seconds = excluded.duration_seconds,
+        duration_minutes = excluded.duration_minutes,
+        published_at = excluded.published_at,
+        published_days_ago = excluded.published_days_ago,
         published_status = excluded.published_status,
         views_per_day = excluded.views_per_day,
         outlier_ratio = excluded.outlier_ratio,
@@ -1175,6 +1450,9 @@ export function upsertChannelAndVideos(
         age_skew_warning = excluded.age_skew_warning,
         estimated_revenue = excluded.estimated_revenue,
         estimated_revenue_status = excluded.estimated_revenue_status,
+        data_origin = excluded.data_origin,
+        source = excluded.source,
+        collected_at = excluded.collected_at,
         updated_at = excluded.updated_at
     `);
 
@@ -1188,7 +1466,7 @@ export function upsertChannelAndVideos(
         v.canonicalUrl || `https://www.youtube.com/watch?v=${v.videoId}`,
         v.contentType || "unknown",
         v.views,
-        v.views !== null ? v.viewsStatus || "observed" : "unknown",
+        v.views !== null ? v.viewsStatus || "observed" : v.viewsStatus || "unknown",
         v.viewsIsRounded ? 1 : 0,
         v.likes,
         v.comments,
@@ -1233,35 +1511,95 @@ export function upsertChannelAndVideos(
       );
     }
 
-    // Record real timestamped snapshot if requested
-    if (recordSnapshot) {
-      const sumObservedVideoViews = honest.videos
-        .filter((v) => v.views !== null)
-        .reduce((acc, v) => acc + v.views, 0);
-      const snapshotViews =
-        honest.totalViews !== null
-          ? honest.totalViews
-          : honest.videos.length > 0
-            ? sumObservedVideoViews
-            : null;
+    // T05: Record real timestamped snapshot ONLY for verified observed metrics (never reduce all-null views to 0!)
+    if (recordSnapshot && honest.dataOrigin === "observed") {
+      const validObservedVideos = honest.videos.filter(
+        (v) =>
+          typeof v.views === "number" &&
+          Number.isFinite(v.views) &&
+          v.views >= 0 &&
+          v.viewsStatus === "observed" &&
+          v.dataOrigin === "observed"
+      );
 
-      if (snapshotViews !== null || honest.subscribers !== null) {
+      const hasChannelTotalViews =
+        typeof honest.totalViews === "number" &&
+        Number.isFinite(honest.totalViews) &&
+        honest.totalViewsStatus === "observed";
+      const hasObservedSubs =
+        typeof honest.subscribers === "number" &&
+        Number.isFinite(honest.subscribers) &&
+        honest.subscribersStatus === "observed";
+
+      if (hasChannelTotalViews) {
         db.prepare(`
           INSERT INTO metric_snapshots (
-            entity_type, entity_id, channel_id, views, subscribers, video_count, source, note, collected_at
-          ) VALUES ('channel', ?, ?, ?, ?, ?, ?, ?, ?)
+            entity_type, entity_id, channel_id, views, subscribers, video_count,
+            source, note, scope, cohort_hash, coverage_count, collected_at
+          ) VALUES ('channel', ?, ?, ?, ?, ?, 'channel_total_views', 'Channel total views snapshot', 'channel_total_views', 'channel_total', ?, ?)
         `).run(
           honest.id,
           honest.id,
-          snapshotViews,
-          honest.subscribers,
-          honest.videoCount ?? honest.observedVideoSampleCount,
-          honest.totalViews !== null ? "channel_total_views" : "observed_videos_sum",
-          honest.totalViews !== null
-            ? "Channel total views snapshot"
-            : `Sum of ${honest.observedVideoSampleCount} observed videos`,
+          honest.totalViews,
+          hasObservedSubs ? honest.subscribers : null,
+          honest.videoCount ?? validObservedVideos.length,
+          honest.videoCount ?? validObservedVideos.length,
           collectedAt
         );
+      } else if (validObservedVideos.length > 0) {
+        const sumObservedVideoViews = validObservedVideos.reduce((acc, v) => acc + v.views, 0);
+        const cohortHash = validObservedVideos
+          .map((v) => v.videoId)
+          .sort()
+          .join(",");
+        db.prepare(`
+          INSERT INTO metric_snapshots (
+            entity_type, entity_id, channel_id, views, subscribers, video_count,
+            source, note, scope, cohort_hash, coverage_count, collected_at
+          ) VALUES ('channel', ?, ?, ?, ?, ?, 'observed_video_subset', ?, 'observed_video_subset', ?, ?, ?)
+        `).run(
+          honest.id,
+          honest.id,
+          sumObservedVideoViews,
+          hasObservedSubs ? honest.subscribers : null,
+          honest.videoCount ?? validObservedVideos.length,
+          `Sum of ${validObservedVideos.length} observed videos`,
+          cohortHash,
+          validObservedVideos.length,
+          collectedAt
+        );
+      } else if (hasObservedSubs) {
+        db.prepare(`
+          INSERT INTO metric_snapshots (
+            entity_type, entity_id, channel_id, views, subscribers, video_count,
+            source, note, scope, cohort_hash, coverage_count, collected_at
+          ) VALUES ('channel', ?, ?, NULL, ?, ?, 'subscribers_only', 'Subscribers only snapshot', 'subscribers_only', '', 0, ?)
+        `).run(
+          honest.id,
+          honest.id,
+          honest.subscribers,
+          honest.videoCount ?? 0,
+          collectedAt
+        );
+      }
+
+      // Record per-video observed snapshots so cohort-intersection growth delta works honestly across crawls
+      if (validObservedVideos.length > 0) {
+        const insertVideoSnap = db.prepare(`
+          INSERT INTO metric_snapshots (
+            entity_type, entity_id, channel_id, views, subscribers, video_count,
+            source, note, scope, cohort_hash, coverage_count, collected_at
+          ) VALUES ('video', ?, ?, ?, NULL, NULL, 'video_observed_views', 'Per-video observed views', 'video_observed_views', ?, 1, ?)
+        `);
+        for (const v of validObservedVideos) {
+          insertVideoSnap.run(
+            v.videoId,
+            honest.id,
+            v.views,
+            v.videoId,
+            v.collectedAt || collectedAt
+          );
+        }
       }
     }
 
@@ -1269,9 +1607,191 @@ export function upsertChannelAndVideos(
   });
 }
 
+/**
+ * T07: Recomputes all channel & video outlier baselines when minOutlierSampleSize changes.
+ */
+export function recomputeAllChannelOutliers(
+  db = getSqliteDb(),
+  minOutlierSampleSize = DEFAULT_MIN_OUTLIER_SAMPLE_SIZE
+) {
+  const effectiveMin = Math.max(
+    3,
+    Number.isFinite(Number(minOutlierSampleSize))
+      ? Math.round(Number(minOutlierSampleSize))
+      : DEFAULT_MIN_OUTLIER_SAMPLE_SIZE
+  );
+  const now = new Date().toISOString();
+
+  return withTransaction(db, () => {
+    const channels = db.prepare("SELECT * FROM channels").all();
+    const updateChStmt = db.prepare(`
+      UPDATE channels SET
+        max_outlier_score = ?,
+        top_outlier_ratio = ?,
+        outlier_status = ?,
+        outlier_reason = ?,
+        baselines_by_format_json = ?,
+        updated_at = ?
+      WHERE id = ?
+    `);
+    const updateVidStmt = db.prepare(`
+      UPDATE videos SET
+        content_type = ?,
+        published_days_ago = ?,
+        views_per_day = ?,
+        outlier_ratio = ?,
+        outlier_score = ?,
+        outlier_status = ?,
+        outlier_reason = ?,
+        baseline_median_views = ?,
+        baseline_sample_size = ?,
+        age_skew_warning = ?,
+        updated_at = ?
+      WHERE video_id = ?
+    `);
+
+    for (const ch of channels) {
+      const videoRows = db
+        .prepare("SELECT * FROM videos WHERE channel_id = ?")
+        .all(ch.id);
+      const rawVideos = videoRows.map((r) => ({
+        videoId: r.video_id,
+        title: r.title,
+        description: r.description,
+        thumbnailUrl: r.thumbnail_url,
+        canonicalUrl: r.canonical_url,
+        contentType: r.content_type !== "unknown" ? r.content_type : null,
+        views: r.views,
+        viewsStatus: r.views_status,
+        viewsIsRounded: Boolean(r.views_is_rounded),
+        likes: r.likes,
+        comments: r.comments,
+        durationSeconds: r.duration_seconds,
+        durationMinutes: r.duration_minutes,
+        publishedAt: r.published_at,
+        publishedDaysAgo: r.published_days_ago,
+        publishedStatus: r.published_status,
+        dataOrigin: r.data_origin,
+        source: r.source,
+        collectedAt: r.collected_at
+      }));
+
+      const evaluated = evaluateChannelVideosOutliers(rawVideos, {
+        minSampleSize: effectiveMin,
+        estimatedRpm: ch.estimated_rpm,
+        channelOrigin: ch.data_origin
+      });
+
+      updateChStmt.run(
+        evaluated.maxOutlierScore,
+        evaluated.topOutlierRatio,
+        evaluated.outlierStatus,
+        evaluated.outlierReason,
+        JSON.stringify(evaluated.baselinesByFormat || {}),
+        now,
+        ch.id
+      );
+
+      for (const v of evaluated.videos) {
+        updateVidStmt.run(
+          v.contentType || "unknown",
+          v.publishedDaysAgo,
+          v.viewsPerDay,
+          v.outlierRatio,
+          v.outlierScore,
+          v.outlierStatus,
+          v.outlierReason,
+          v.baselineMedianViews,
+          v.baselineSampleSize,
+          v.ageSkewWarning,
+          now,
+          v.videoId
+        );
+      }
+    }
+
+    return { recomputedChannels: channels.length, minOutlierSampleSize: effectiveMin };
+  });
+}
+
 // ============================================================================
 // IDEMPOTENT MIGRATION FROM LEGACY JSON TO SQLITE WITH BACKUP & RECONCILIATION
 // ============================================================================
+
+export function applyV21ReviewFixesMigration(db) {
+  const migrationVersion = "v2.1-review-fixes";
+  const alreadyApplied = db
+    .prepare("SELECT * FROM schema_migrations WHERE version = ?")
+    .get(migrationVersion);
+  if (alreadyApplied) return;
+
+  const now = new Date().toISOString();
+  withTransaction(db, () => {
+    // 1. Clean legacy_unverified & demo channels/videos so they never claim 'derived' outlier status
+    db.exec(`
+      UPDATE videos SET
+        outlier_ratio = NULL,
+        outlier_score = NULL,
+        outlier_status = 'unverified_source',
+        outlier_reason = 'Dữ liệu legacy chưa xác minh nguồn thu thập, không dùng làm baseline outlier.',
+        baseline_median_views = NULL,
+        baseline_sample_size = 0
+      WHERE data_origin = 'legacy_unverified' OR views_status = 'legacy_unverified';
+
+      UPDATE channels SET
+        top_outlier_ratio = NULL,
+        max_outlier_score = NULL,
+        outlier_status = 'unverified_source',
+        outlier_reason = 'Kênh từ dữ liệu legacy chưa xác minh nguồn thu thập, không tính outlier.',
+        baselines_by_format_json = '{}'
+      WHERE data_origin = 'legacy_unverified';
+
+      UPDATE videos SET
+        outlier_ratio = NULL,
+        outlier_score = NULL,
+        outlier_status = 'demo',
+        outlier_reason = 'Dữ liệu demo minh họa, không tính vào nghiên cứu thật.',
+        baseline_median_views = NULL,
+        baseline_sample_size = 0
+      WHERE data_origin = 'demo' OR views_status = 'demo';
+
+      UPDATE channels SET
+        top_outlier_ratio = NULL,
+        max_outlier_score = NULL,
+        outlier_status = 'demo',
+        outlier_reason = 'Kênh demo minh họa, không tính vào nghiên cứu thật.',
+        baselines_by_format_json = '{}'
+      WHERE data_origin = 'demo';
+    `);
+
+    // 2. Mark seeded demo swipe items as data_origin = 'demo' so they don't pollute real workspace by default
+    for (const demoSwipeId of DEMO_SWIPE_IDS) {
+      db.prepare(`
+        UPDATE swipe_items SET
+          data_origin = 'demo',
+          metrics_source_status = 'demo'
+        WHERE id = ?
+      `).run(demoSwipeId);
+    }
+
+    // 3. Delete bogus 0-view snapshots created when all video views were null
+    db.exec(`
+      DELETE FROM metric_snapshots
+      WHERE entity_type = 'channel' AND views = 0 AND source = 'observed_videos_sum';
+    `);
+
+    // 4. Enforce minOutlierSampleSize >= 3
+    const currentMinSample = getAppSetting(db, "minOutlierSampleSize", DEFAULT_MIN_OUTLIER_SAMPLE_SIZE);
+    if (typeof currentMinSample !== "number" || currentMinSample < 3) {
+      setAppSetting(db, "minOutlierSampleSize", DEFAULT_MIN_OUTLIER_SAMPLE_SIZE);
+    }
+
+    db.prepare(`
+      INSERT OR IGNORE INTO schema_migrations (version, applied_at, reconciliation_json)
+      VALUES (?, ?, ?)
+    `).run(migrationVersion, now, JSON.stringify({ appliedAt: now }));
+  });
+}
 
 export function migrateLegacyJsonToSqlite(db = getSqliteDb(), jsonPath = LEGACY_JSON_PATH) {
   const migrationVersion = "v2.0-honest-sqlite";
@@ -1385,7 +1905,7 @@ export function migrateLegacyJsonToSqlite(db = getSqliteDb(), jsonPath = LEGACY_
       },
       videos: cleanVideos,
       dataOrigin: origin,
-      recordSnapshot: !isDemo && cleanVideos.length > 0,
+      recordSnapshot: false,
       collectedAt: ch.lastUpdatedAt || now
     });
 
@@ -1423,14 +1943,21 @@ export function migrateLegacyJsonToSqlite(db = getSqliteDb(), jsonPath = LEGACY_
         title, channel_title, channel_handle, thumbnail_url,
         outlier_ratio, views, estimated_rpm,
         workflow_stage, owner_label, published_video_url, brief_markdown,
-        tags_json, notes, source, saved_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        tags_json, notes, source, data_origin, metrics_source_status, saved_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         notes = CASE WHEN swipe_items.notes != '' THEN swipe_items.notes ELSE excluded.notes END,
         tags_json = excluded.tags_json,
+        data_origin = excluded.data_origin,
+        metrics_source_status = excluded.metrics_source_status,
         updated_at = excluded.updated_at
     `);
     for (const item of swipeItems) {
+      const isDemoItem =
+        DEMO_SWIPE_IDS.has(item.id) ||
+        (item.channelId && DEMO_CHANNEL_IDS.has(item.channelId)) ||
+        item.dataOrigin === "demo";
+      const itemOrigin = isDemoItem ? "demo" : item.dataOrigin || "legacy_unverified";
       itemStmt.run(
         item.id,
         item.folderId || "folder-outliers",
@@ -1442,7 +1969,7 @@ export function migrateLegacyJsonToSqlite(db = getSqliteDb(), jsonPath = LEGACY_
         item.channelTitle || "",
         item.channelHandle || "",
         item.thumbnailUrl || "",
-        typeof item.outlierRatio === "number" ? item.outlierRatio : null,
+        isDemoItem ? null : typeof item.outlierRatio === "number" ? item.outlierRatio : null,
         typeof item.views === "number" ? item.views : null,
         typeof item.estimatedRpm === "number" ? item.estimatedRpm : null,
         item.workflowStage || "discovered",
@@ -1451,7 +1978,9 @@ export function migrateLegacyJsonToSqlite(db = getSqliteDb(), jsonPath = LEGACY_
         item.briefMarkdown || "",
         JSON.stringify(Array.isArray(item.tags) ? item.tags : []),
         item.notes || "",
-        item.source || "legacy_migrated",
+        item.source || (isDemoItem ? "demo_seed" : "legacy_migrated"),
+        itemOrigin,
+        itemOrigin,
         item.savedAt || now,
         now
       );

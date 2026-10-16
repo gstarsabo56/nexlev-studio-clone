@@ -1,9 +1,10 @@
-// Chrome Extension Background Service Worker (Batch 4)
-// Handles authenticated API requests, TTL caching for batch metrics, and strict HTTP status checking.
+// Chrome Extension Background Service Worker (v2.1)
+// Handles authenticated API requests (Bearer + x-nexlev-token), session-backed TTL caching,
+// and strict HTTP status checking before reporting saved status.
 
 const DEFAULT_API_BASE = "http://127.0.0.1:3088";
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const metricsCache = new Map();
+const fallbackMemoryCache = new Map();
 
 export async function getExtensionConfig(storageImpl = globalThis.chrome?.storage?.local) {
   if (!storageImpl) {
@@ -31,7 +32,9 @@ export async function getExtensionConfig(storageImpl = globalThis.chrome?.storag
 function buildAuthHeaders(apiToken = "") {
   const headers = { "Content-Type": "application/json" };
   if (apiToken && String(apiToken).trim()) {
-    headers["x-nexlev-token"] = String(apiToken).trim();
+    const clean = String(apiToken).trim();
+    headers.Authorization = `Bearer ${clean}`;
+    headers["x-nexlev-token"] = clean;
   }
   return headers;
 }
@@ -80,7 +83,7 @@ export async function handleSaveSwipeMessage(
     }
     if (actionImpl) {
       await actionImpl.setBadgeText({ text: String(nextCount) });
-      await actionImpl.setBadgeBackgroundColor({ color: "#10b981" });
+      await actionImpl.setBadgeBackgroundColor({ color: "#3CCB7F" });
     }
 
     return {
@@ -109,7 +112,7 @@ export async function handleBatchMetricsLookup(
   const cachedVideosResult = {};
 
   for (const vid of videoIds) {
-    const hit = metricsCache.get(`v:${vid}`);
+    const hit = fallbackMemoryCache.get(`v:${vid}`);
     if (hit && now - hit.ts < CACHE_TTL_MS) {
       cachedVideosResult[vid] = hit.val;
     } else {
@@ -145,7 +148,7 @@ export async function handleBatchMetricsLookup(
     const data = await resp.json();
     const freshVideos = data?.videos || {};
     for (const [vid, val] of Object.entries(freshVideos)) {
-      metricsCache.set(`v:${vid}`, { ts: now, val });
+      fallbackMemoryCache.set(`v:${vid}`, { ts: now, val });
       cachedVideosResult[vid] = val;
     }
 

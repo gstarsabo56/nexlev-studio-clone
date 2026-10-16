@@ -201,13 +201,15 @@ export function parseCountTextStrict(rawInput, localeHint = "en") {
  */
 export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
   if (typeof rawInput === "number" && Number.isFinite(rawInput) && rawInput >= 0) {
-    const days = Math.max(0.04, rawInput);
+    const days = Number(rawInput.toFixed(4));
     const refMs = collectedAtIso ? Date.parse(collectedAtIso) : Date.now();
     return {
-      publishedDaysAgo: Number(days.toFixed(2)),
+      publishedDaysAgo: days,
       estimatedPublishedAt: Number.isFinite(refMs)
         ? new Date(refMs - days * 86400_000).toISOString()
         : null,
+      publishedAt: null,
+      precision: "relative_estimate",
       status: "observed",
       raw: String(rawInput),
       reason: null
@@ -219,6 +221,8 @@ export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
     return {
       publishedDaysAgo: null,
       estimatedPublishedAt: null,
+      publishedAt: null,
+      precision: "unknown",
       status: "unknown",
       raw,
       reason: "empty_published_text"
@@ -230,10 +234,13 @@ export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
     const parsedMs = Date.parse(raw);
     if (Number.isFinite(parsedMs)) {
       const refMs = collectedAtIso ? Date.parse(collectedAtIso) : Date.now();
-      const days = Math.max(0.04, (refMs - parsedMs) / 86400_000);
+      const days = Math.max(0, Number(((refMs - parsedMs) / 86400_000).toFixed(4)));
+      const isoStr = new Date(parsedMs).toISOString();
       return {
-        publishedDaysAgo: Number(days.toFixed(2)),
-        estimatedPublishedAt: new Date(parsedMs).toISOString(),
+        publishedDaysAgo: days,
+        estimatedPublishedAt: isoStr,
+        publishedAt: isoStr,
+        precision: "exact_timestamp",
         status: "observed",
         raw,
         reason: null
@@ -243,26 +250,17 @@ export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
 
   const s = raw.toLowerCase();
 
-  // Pattern for number + unit across 11 languages:
-  // en: minute/hour/day/week/month/year
-  // de: minute/stunde/tag/woche/monat/jahr
-  // fr: minute/heure/jour/semaine/mois/an/année
-  // es: minuto/hora/día/dia/semana/mes/meses/año/ano
-  // pt: minuto/hora/dia/semana/mês/meses/ano
-  // it: minuto/ora/ore/giorno/giorni/settimana/settimane/mese/mesi/anno/anni
-  // nl: minuut/minuten/uur/dag/dagen/week/weken/maand/maanden/jaar
-  // vi: phút/giờ/ngày/tuần/tháng/năm
-  // ko: 분/시간/일/주/개월/달/년
-  // ja: 分/時間/日/週間/週/か月/ヶ月/月/年
-  // zh: 分鐘/小時/天/日/週/星期/個月/年
+  // Pattern for number + unit across 11 languages (including English hours/hrs!):
   const regex =
-    /(\d+)\s*(minutes?|mins?|stunde[n]?|heures?|horas?|ore|ora|uur|uren|giờ|시간|時間|小時|phút|분|分|分鐘|days?|tage[n]?|tag|jours?|días?|dias?|giorni|giorno|dagen|dag|ngày|일|日|天|weeks?|wochen?|semaines?|semanas?|settimane|settimana|weken|tuần|주|週間|週|星期|months?|monate[n]?|monat|mois|meses|mês|mes|mesi|mese|maanden|maand|tháng|개월|달|か月|ヶ月|個月|years?|jahre[n]?|jahr|ans?|années?|años?|anos?|anni|anno|jaar|jaren|năm|년|年)/i;
+    /(\d+)\s*(seconds?|secs?|giây|초|秒|minutes?|mins?|stunde[n]?|hours?|hrs?|heures?|horas?|ore|ora|uur|uren|giờ|시간|時間|小時|phút|분|分|分鐘|days?|tage[n]?|tag|jours?|días?|dias?|giorni|giorno|dagen|dag|ngày|일|日|天|weeks?|wochen?|semaines?|semanas?|settimane|settimana|weken|tuần|주|週間|週|星期|months?|monate[n]?|monat|mois|meses|mês|mes|mesi|mese|maanden|maand|tháng|개월|달|か月|ヶ月|個月|years?|jahre[n]?|jahr|ans?|années?|años?|anos?|anni|anno|jaar|jaren|năm|년|年)/i;
 
   const m = s.match(regex);
   if (!m) {
     return {
       publishedDaysAgo: null,
       estimatedPublishedAt: null,
+      publishedAt: null,
+      precision: "unknown",
       status: "unknown",
       raw,
       reason: "unrecognized_published_time_format"
@@ -273,12 +271,14 @@ export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
   const u = m[2].toLowerCase();
 
   let days;
-  if (/^(minute|min|phút|분|分|分鐘)/.test(u)) {
-    days = Math.max(0.02, n / 1440);
-  } else if (/^(hour|stunde|heure|hora|ore|ora|uur|uren|giờ|시간|時間|小時)/.test(u)) {
-    days = Math.max(0.04, n / 24);
+  if (/^(second|sec|giây|초|秒)/.test(u)) {
+    days = n / 86400;
+  } else if (/^(minute|min|phút|분|分|分鐘)/.test(u)) {
+    days = n / 1440;
+  } else if (/^(hour|hr|stunde|heure|hora|ore|ora|uur|uren|giờ|시간|時間|小時)/.test(u)) {
+    days = n / 24;
   } else if (/^(day|tag|jour|día|dia|giorn|dag|ngày|일|日|天)/.test(u)) {
-    days = Math.max(1, n);
+    days = n;
   } else if (/^(week|woch|semaine|semana|settiman|wek|tuần|주|週間|週|星期)/.test(u)) {
     days = n * 7;
   } else if (/^(month|monat|mois|mes|mês|maand|tháng|개월|달|か月|ヶ月|個月)/.test(u)) {
@@ -289,6 +289,8 @@ export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
     return {
       publishedDaysAgo: null,
       estimatedPublishedAt: null,
+      publishedAt: null,
+      precision: "unknown",
       status: "unknown",
       raw,
       reason: `unmapped_time_unit:${u}`
@@ -296,18 +298,18 @@ export function parsePublishedTextStrict(rawInput, collectedAtIso = null) {
   }
 
   const refMs = collectedAtIso ? Date.parse(collectedAtIso) : Date.now();
+  const roundedDays = Number(days.toFixed(4));
+  const estIso = Number.isFinite(refMs)
+    ? new Date(refMs - days * 86400_000).toISOString()
+    : null;
+
   return {
-    publishedDaysAgo: Number(days.toFixed(2)),
-    estimatedPublishedAt: Number.isFinite(refMs)
-      ? new Date(refMs - days * 86400_000).toISOString()
-      : null,
-    publishedAt: Number.isFinite(refMs)
-      ? new Date(refMs - days * 86400_000).toISOString()
-      : null,
-    ageDays: Number(days.toFixed(2)),
-    value: Number.isFinite(refMs)
-      ? new Date(refMs - days * 86400_000).toISOString()
-      : null,
+    publishedDaysAgo: roundedDays,
+    estimatedPublishedAt: estIso,
+    publishedAt: estIso,
+    ageDays: roundedDays,
+    value: estIso,
+    precision: "relative_estimate",
     status: "derived",
     raw,
     reason: null
@@ -406,21 +408,35 @@ export function parseRelativePublishedDate(rawInput, refTime = null) {
 }
 
 /**
- * Classifies an individual video into 'shorts' | 'long' | 'live' | 'unknown'.
- * Never uses the channel's average video duration.
+ * Classifies an individual video into 'shorts' | 'long' | 'live' | 'unknown' with explicit evidence (T04).
+ * - Never treats #shorts hashtag alone as proof of Shorts.
+ * - Never assumes a <=60s video without /shorts/ URL, isShorts flag, or vertical aspect ratio is Shorts.
+ * - Never assumes a 61-180s video without orientation/non-shorts evidence is Long (since YouTube supports 3-minute Shorts).
+ * - Videos >180s (3 minutes) that are not live streams are definitively 'long'.
  */
-export function classifyVideoContentType({
+export function classifyVideoContentTypeDetailed({
   isLive = false,
   isUpcoming = false,
-  isShorts = false,
+  isShorts = undefined,
+  aspectRatio = null,
   url = "",
-  title = "",
   durationSeconds = null,
   durationMinutes = null
 } = {}) {
-  if (isLive || isUpcoming) return "live";
-  if (isShorts || /\/shorts\//i.test(String(url)) || /#shorts\b/i.test(String(title))) {
-    return "shorts";
+  if (isLive || isUpcoming) {
+    return {
+      contentType: "live",
+      contentTypeStatus: "observed",
+      evidence: "live_or_upcoming_flag"
+    };
+  }
+
+  if (isShorts === true || /\/shorts\//i.test(String(url || ""))) {
+    return {
+      contentType: "shorts",
+      contentTypeStatus: "observed",
+      evidence: isShorts === true ? "explicit_shorts_flag" : "shorts_canonical_url"
+    };
   }
 
   const sec =
@@ -430,11 +446,49 @@ export function classifyVideoContentType({
         ? Math.round(durationMinutes * 60)
         : null;
 
-  if (sec !== null && sec > 0) {
-    if (sec <= 60) return "shorts";
-    return "long";
+  if (aspectRatio === "vertical" && sec !== null && sec > 0 && sec <= 180) {
+    return {
+      contentType: "shorts",
+      contentTypeStatus: "observed",
+      evidence: "vertical_aspect_le_180s"
+    };
   }
 
-  return "unknown";
+  if (aspectRatio === "horizontal" && sec !== null && sec > 0) {
+    return {
+      contentType: "long",
+      contentTypeStatus: "observed",
+      evidence: "horizontal_aspect_ratio"
+    };
+  }
+
+  if (isShorts === false && sec !== null && sec > 0) {
+    return {
+      contentType: "long",
+      contentTypeStatus: "observed",
+      evidence: "explicit_non_shorts_flag"
+    };
+  }
+
+  // YouTube Shorts maximum duration is 180 seconds (3 minutes).
+  // Any non-live video strictly longer than 180s is definitively long-form.
+  if (sec !== null && sec > 180) {
+    return {
+      contentType: "long",
+      contentTypeStatus: "derived",
+      evidence: "duration_gt_180s"
+    };
+  }
+
+  return {
+    contentType: "unknown",
+    contentTypeStatus: "unknown",
+    evidence: sec !== null ? "ambiguous_duration_le_180s_without_orientation_or_url" : "missing_duration_and_url"
+  };
 }
+
+export function classifyVideoContentType(input = {}) {
+  return classifyVideoContentTypeDetailed(input).contentType;
+}
+
 

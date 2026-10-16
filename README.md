@@ -1,4 +1,4 @@
-# Nexlev Internal Team Studio (`v2.0` — Honest Provenance & SQLite WAL Edition)
+# Nexlev Internal Team Studio (`v2.1` — Honest Provenance, SQLite WAL & High-Density Research UI)
 
 Hệ thống nội bộ phục vụ đội ngũ nghiên cứu ngách YouTube (Niche Finder), phát hiện video bứt phá (Viral Outliers), quản lý danh sách theo dõi chung (Shared Watchlist) và điều phối quy trình sản xuất 6 bước (**Phát hiện → Duyệt → Brief → Giao việc → Đã đăng → Đánh giá**) dùng chung giữa **Web Dashboard**, **Antigravity MCP Server** và **Chrome Extension**.
 
@@ -10,32 +10,36 @@ Hệ thống nội bộ phục vụ đội ngũ nghiên cứu ngách YouTube (Ni
    - Không bao giờ tự sinh số `subscribers`, `videoCount`, `channelAgeMonths`, `likes`, `comments` hoặc tỷ lệ tăng trưởng từ vài video tìm kiếm.
    - Không suy diễn trạng thái bật kiếm tiền YPP chỉ từ `subscribers >= 1000`.
    - Không gán quốc gia/ngôn ngữ từ khóa tìm kiếm (`discoveryMarket`) làm quốc gia kênh (`channelCountry`) hoặc phân bổ khán giả (`audienceGeography`).
-   - Không sinh biểu đồ 48h bằng hàm `Math.sin`. Tăng trưởng chỉ được tính từ bảng lịch sử `metric_snapshots` thực tế.
+   - Không sinh biểu đồ 48h bằng hàm `Math.sin`. Tăng trưởng chỉ được tính từ bảng lịch sử `metric_snapshots` thực tế trên cùng tập mẫu video giao nhau (`video_cohort_intersection`) hoặc tổng lượt xem kênh xác thực (`channel_total_views`).
 2. **Mọi chỉ số đều có trạng thái nguồn gốc (`status`)**:
    - `observed`: Quan sát trực tiếp từ YouTube (InnerTube hoặc YouTube Data API v3).
-   - `derived`: Tính toán toán học từ mẫu quan sát đủ điều kiện (ví dụ: `outlierRatio`, `medianViews` khi `sampleSize >= 3`).
-   - `estimated`: Kịch bản ước lượng/heuristic có nêu rõ giả định (ví dụ: `estimatedRpm`, `facelessLabel`).
-   - `unknown` / `insufficient_data`: Chưa có dữ liệu nguồn hoặc mẫu video `< 3`.
-   - `legacy_unverified`: Dữ liệu lịch sử chuyển từ bản JSON cũ sang SQLite, đã loại bỏ các trường suy diễn giả và gắn nhãn cảnh báo chờ làm giàu lại.
+   - `derived`: Tính toán toán học từ mẫu quan sát đủ điều kiện (`dataOrigin === 'observed'`, định dạng `long` hoặc `shorts` đã xác minh, `sampleSize >= minOutlierSampleSize` và tối thiểu `>= 3`).
+   - `estimated`: Kịch bản ước lượng/heuristic có nêu rõ giả định (`estimatedRpm`, `facelessLabel`).
+   - `insufficient_data` / `unknown`: Chưa có dữ liệu nguồn, định dạng video chưa xác định, hoặc mẫu video `< 3`.
+   - `unverified_source` / `legacy_unverified`: Dữ liệu lịch sử chuyển từ bản JSON cũ sang SQLite, không bao giờ được dùng làm baseline tính `outlierRatio = derived` cho tới khi thu thập lại từ nguồn thực.
+   - `template_draft` / `user_edited`: Tách bạch rõ bản nháp Brief tạo tự động từ khung mẫu và bản Brief do biên tập viên chỉnh sửa; lưu lịch sử phiên bản trong `brief_revisions`.
    - `demo`: Dữ liệu mẫu chỉ hiển thị khi bật công tắc **Include Demo**; mặc định bị loại khỏi mọi kết quả nghiên cứu.
 
 ---
 
-## 🏗️ Kiến trúc Hệ thống
+## 🏗️ Kiến trúc Hệ thống & Bảo mật Nội bộ (`v2.1`)
 
-- **Centralized SQLite WAL (`data/nexlev.sqlite`)**: Sử dụng module tích hợp `node:sqlite` (`DatabaseSync`) của Node.js `>=22.5 / 24.x` ở chế độ `WAL` + `busy_timeout = 5000` + giao dịch `BEGIN IMMEDIATE`. Cho phép Web Server, Background Crawler, Chrome Extension và MCP Server đọc/ghi đồng thời mà không bao giờ bị mất cập nhật (lost updates).
-- **Xác thực Nội bộ & Phân quyền (`manager` / `member`)**:
-  - Hỗ trợ đăng nhập theo tài khoản nhân viên (`users`, `user_sessions`) và `api_token` riêng cho từng thành viên.
-  - Quyền `manager`: Cấu hình API Key, lịch chạy Crawler toàn cục, quản lý nhân sự.
-  - Quyền `member`: Nghiên cứu kênh/video, thêm Watchlist, lưu ý tưởng vào Swipe Library, tạo Production Brief, cập nhật tiến độ công việc được giao.
-- **Quy trình Sản xuất 6 Bước (Shared Team Workflow)**:
-  1. `discovered` (**1. Phát hiện**)
-  2. `approved` (**2. Duyệt**)
-  3. `briefing` (**3. Brief**)
-  4. `assigned` (**4. Giao việc**)
-  5. `published` (**5. Đã đăng**)
-  6. `review` (**6. Đánh giá**)
-  - Mỗi công việc có đầy đủ: **Người phụ trách (`ownerLabel` / `assigneeId`)**, **Deadline (`deadline`)**, **Ghi chú (`notes`)**, **Link kết quả (`resultUrl`)**, và **Production Brief Markdown**.
+- **Centralized SQLite WAL (`data/nexlev.sqlite`)**:
+  - Sử dụng module tích hợp `node:sqlite` (`DatabaseSync`) của Node.js `>=22.5 / 24.x` ở chế độ `WAL` + `busy_timeout = 5000` + giao dịch `BEGIN IMMEDIATE`.
+  - Hỗ trợ ghi đồng thời an toàn giữa Web Server, Background Crawler (có cơ chế `worker_id` + `lease_until` + `heartbeat_at`), Chrome Extension và MCP Server.
+  - Hỗ trợ cấu hình đường dẫn độc lập qua `NEXLEV_SQLITE_PATH` và `NEXLEV_SECRETS_PATH` để chạy test cô lập tuyệt đối, không chạm vào dữ liệu thật.
+- **Xác thực Mặc định Nghiêm ngặt & Phân quyền RBAC (`manager` / `member`)**:
+  - Mọi route `/api/v1/*` (trừ `/api/v1/auth/login` và `/api/v1/health`) bắt buộc xác thực qua Bearer Session Token hoặc `X-API-Token` (`401 AUTH_REQUIRED`). Chỉ bật bypass khi môi trường phát triển đặt rõ `NEXLEV_DEV_AUTH_BYPASS=true`.
+  - Đổi mật khẩu hoặc vô hiệu hóa tài khoản tự động thu hồi toàn bộ phiên đăng nhập (`user_sessions`) và xoay mới `api_token`.
+  - Danh sách nhân sự chỉ trả về `apiTokenPreview` đã che; token đầy đủ chỉ hiển thị cho chính người dùng qua `/api/v1/auth/token` hoặc `/api/v1/auth/token/rotate`.
+- **Kiểm soát Đồng thời Lạc quan (Optimistic Concurrency `409 REVISION_CONFLICT`)**:
+  - Mọi cập nhật ý tưởng/công việc (`swipe_items`) đều kiểm tra `expectedRevision`. Nếu có thành viên khác vừa lưu phiên bản mới hơn, server trả về `409 REVISION_CONFLICT` kèm `serverItem` để người dùng đối chiếu trên giao diện mà không làm mất bản nháp đang gõ.
+- **Giao diện Nghiên cứu Mật độ Cao (5 Không gian Làm việc)**:
+  1. **Khám phá (`discover`)**: Chuyển đổi tức thì giữa bảng **Kênh** và **Video Outlier**, thanh công cụ lọc gọn kèm ngăn kéo **Bộ lọc nâng cao (Advanced Filters)** và cửa sổ **Thu thập & Nhập mục tiêu (`import_targets`)**.
+  2. **Watchlist (`watchlist`)**: Theo dõi kênh đối thủ, ghi chú theo dõi từng kênh và đối chiếu tăng trưởng thực theo cohort.
+  3. **Ý tưởng (`ideas`)**: Hộp chờ duyệt ý tưởng (`discovered` → `approved`), tích hợp công cụ **Chấm điểm Tiêu đề (Title Readiness)** và trích xuất **Transcript / Khung Kịch bản**.
+  4. **Sản xuất (`production`)**: Bảng điều phối 4 giai đoạn sản xuất (`approved`, `briefing`, `assigned`, `published`, `review`) theo bố cục Bảng hoặc Kanban, trình soạn thảo Brief có bảo vệ bản nháp (`dirtyFields`), lịch sử phiên bản (`brief_revisions`) và nhật ký hoạt động (`work_activity`).
+  5. **Quản trị (`admin` — Chỉ hiển thị với `manager`)**: Quản lý nhân sự, cấu hình ngưỡng mẫu Outlier tối thiểu (`>= 3`), lịch chạy Crawler và khóa API.
 
 ---
 
@@ -49,7 +53,7 @@ Hệ thống nội bộ phục vụ đội ngũ nghiên cứu ngách YouTube (Ni
   ```
   *(Nếu máy cài Node 24 qua Homebrew tại `/opt/homebrew/opt/node@24/bin`, thêm vào `PATH`: `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`).*
 
-### 2. Cài đặt dependencies & Chạy Test
+### 2. Cài đặt dependencies & Chạy bộ kiểm thử hồi quy (15 test suites)
 ```bash
 npm install
 npm test

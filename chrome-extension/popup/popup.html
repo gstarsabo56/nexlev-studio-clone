@@ -2,16 +2,16 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <title>Nexlev Team Studio</title>
+  <title>Nexlev Studio</title>
   <style>
     body {
-      width: 330px;
+      width: 320px;
       margin: 0;
       padding: 14px;
-      background: #070b14;
-      color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 13px;
+      background: #101216;
+      color: #F3F5F8;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 12.5px;
     }
     .hdr {
       display: flex;
@@ -20,21 +20,21 @@
       margin-bottom: 12px;
     }
     .title {
-      font-weight: 800;
-      color: #10b981;
-      font-size: 15px;
+      font-weight: 600;
+      color: #F3F5F8;
+      font-size: 14px;
     }
     .card {
-      background: #0f1626;
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      border-radius: 10px;
-      padding: 10px;
+      background: #171A20;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 12px;
       margin-bottom: 10px;
     }
     label {
       display: block;
-      font-size: 11px;
-      color: #94a3b8;
+      font-size: 11.5px;
+      color: #A6B0C0;
       margin-bottom: 4px;
     }
     input[type="text"], input[type="password"] {
@@ -42,70 +42,70 @@
       box-sizing: border-box;
       padding: 6px 8px;
       border-radius: 6px;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: #070b14;
-      color: #f8fafc;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: #101216;
+      color: #F3F5F8;
       font-size: 12px;
       margin-bottom: 8px;
     }
     .btn {
       display: block;
       width: 100%;
-      padding: 8px;
-      border-radius: 8px;
-      border: none;
-      background: linear-gradient(135deg, #10b981, #06b6d4);
-      color: #04131a;
-      font-weight: 800;
+      padding: 7px 10px;
+      border-radius: 6px;
+      border: 1px solid #83A8FF;
+      background: #83A8FF;
+      color: #0B0E14;
+      font-weight: 600;
+      font-size: 12.5px;
       cursor: pointer;
       text-align: center;
-      text-decoration: none;
       box-sizing: border-box;
       margin-top: 6px;
     }
     .btn-secondary {
-      background: #1e293b;
-      color: #e2e8f0;
-      font-weight: 600;
+      background: #20242C;
+      border-color: rgba(255, 255, 255, 0.14);
+      color: #F3F5F8;
     }
     .muted {
-      color: #94a3b8;
-      font-size: 12px;
+      color: #6E7787;
+      font-size: 11.5px;
       margin-top: 4px;
     }
   </style>
 </head>
 <body>
   <div class="hdr">
-    <span class="title">⚡ NEXLEV TEAM</span>
-    <span id="status-pill" style="color:#6ee7b7;font-weight:700;">Active</span>
+    <span class="title">Nexlev Studio v2.1</span>
+    <span id="status-pill" style="color:#3CCB7F;font-weight:600;">Active</span>
   </div>
 
   <div class="card">
-    <label style="display:flex;align-items:center;gap:8px;color:#f8fafc;font-weight:600;cursor:pointer;">
+    <label style="display:flex;align-items:center;gap:8px;color:#F3F5F8;font-weight:500;cursor:pointer;">
       <input type="checkbox" id="toggle-overlay" checked />
-      Hiển thị Overlay trên YouTube.com
+      Hiển thị chỉ số Outlier dưới video YouTube
     </label>
-    <div class="muted">Chỉ hiển thị Outlier khi kênh đủ mẫu baseline (&ge;3 video cùng kênh).</div>
+    <div class="muted">Chỉ hiển thị hệ số Outlier khi kênh có ≥ 3 video cùng định dạng.</div>
   </div>
 
   <div class="card">
-    <label for="ext-api-base">Backend URL (Local/LAN):</label>
+    <label for="ext-api-base">Máy chủ Nexlev (Local/LAN):</label>
     <input type="text" id="ext-api-base" value="http://127.0.0.1:3088" />
 
-    <label for="ext-api-token">Employee API Token (Tùy chọn):</label>
-    <input type="password" id="ext-api-token" placeholder="nxl_admin_..." />
+    <label for="ext-api-token">API Token cá nhân (Bắt buộc theo T01):</label>
+    <input type="password" id="ext-api-token" placeholder="Dán API Token từ mục Quản trị / Sidebar..." />
 
-    <button type="button" id="btn-save-config" class="btn btn-secondary">💾 Lưu Kết Nối</button>
+    <button type="button" id="btn-save-config" class="btn btn-secondary">Lưu kết nối</button>
     <div id="config-msg" class="muted"></div>
   </div>
 
   <div class="card">
-    <strong>Số ý tưởng đã lưu vào Team Library:</strong> <span id="saved-count">0</span>
+    <span>Đã lưu vào kho Ý tưởng:</span> <strong id="saved-count">0</strong>
   </div>
 
   <button type="button" id="btn-open-dashboard" class="btn">
-    📊 Mở Nexlev Team Dashboard
+    Mở Nexlev Workspace
   </button>
   <script src="popup.js"></script>
 </body>

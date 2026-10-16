@@ -54,23 +54,46 @@ export function computeOutlierTier(ratio) {
  */
 export function evaluateChannelVideosOutliers(
   videos = [],
-  { minSampleSize = DEFAULT_MIN_OUTLIER_SAMPLE_SIZE } = {}
+  {
+    minSampleSize = DEFAULT_MIN_OUTLIER_SAMPLE_SIZE,
+    channelDataOrigin = "observed",
+    nowMs = Date.now()
+  } = {}
 ) {
+  const effectiveMinSample = Math.max(
+    3,
+    Math.round(Number(minSampleSize) || DEFAULT_MIN_OUTLIER_SAMPLE_SIZE)
+  );
+
   if (!Array.isArray(videos) || videos.length === 0) {
     return {
       videos: [],
       baselinesByFormat: {},
       maxOutlierScore: null,
       topOutlierRatio: null,
+      minSampleRequired: effectiveMinSample,
       outlierStatus: "insufficient_data",
       outlierReason: "no_observed_videos"
     };
   }
 
-  const effectiveMinSample = Math.max(2, Number(minSampleSize) || DEFAULT_MIN_OUTLIER_SAMPLE_SIZE);
-
-  // 1. Classify each video individually
+  // 1. Classify each video individually & compute dynamic age from publishedAt when available (T04, T07)
   const normalizedVideos = videos.map((v) => {
+    const videoOrigin = v.dataOrigin || channelDataOrigin || "observed";
+    const views =
+      typeof v.views === "number" && Number.isFinite(v.views) && v.views >= 0
+        ? Math.round(v.views)
+        : null;
+    const viewsStatus =
+      v.viewsStatus ||
+      (views === null
+        ? "unknown"
+        : videoOrigin === "legacy_unverified"
+          ? "legacy_unverified"
+          : videoOrigin === "demo"
+            ? "demo"
+            : "observed");
+
     const contentType =
       v.contentType && ["long", "shorts", "live"].includes(v.contentType)
         ? v.contentType
@@ -78,34 +101,45 @@ export function evaluateChannelVideosOutliers(
             isLive: v.isLive,
             isUpcoming: v.isUpcoming,
             isShorts: v.isShorts,
-            url: v.url,
-            title: v.title,
+            aspectRatio: v.aspectRatio,
+            url: v.canonicalUrl || v.url,
             durationSeconds: v.durationSeconds,
             durationMinutes: v.durationMinutes
           });
 
-    const views =
-      typeof v.views === "number" && Number.isFinite(v.views) && v.views >= 0
-        ? Math.round(v.views)
-        : null;
-
-    const publishedDaysAgo =
+    // Dynamic age from publishedAt if valid ISO timestamp exists (T07)
+    let publishedDaysAgo = null;
+    let publishedPrecision = v.publishedPrecision || "unknown";
+    if (v.publishedAt) {
+      const pubMs = Date.parse(v.publishedAt);
+      if (Number.isFinite(pubMs)) {
+        publishedDaysAgo = Math.max(0, Number(((nowMs - pubMs) / 86400_000).toFixed(2)));
+        publishedPrecision = "exact_timestamp";
+      }
+    }
+    if (
+      publishedDaysAgo === null &&
       typeof v.publishedDaysAgo === "number" &&
       Number.isFinite(v.publishedDaysAgo) &&
-      v.publishedDaysAgo > 0
-        ? Number(v.publishedDaysAgo)
-        : null;
+      v.publishedDaysAgo >= 0
+    ) {
+      publishedDaysAgo = Number(v.publishedDaysAgo);
+      publishedPrecision = "relative_estimate";
+    }
 
     const viewsPerDay =
-      views !== null && publishedDaysAgo !== null
-        ? Math.round(views / Math.max(0.25, publishedDaysAgo))
+      views !== null && publishedDaysAgo !== null && publishedDaysAgo > 0
+        ? Math.round(views / publishedDaysAgo)
         : null;
 
     return {
       ...v,
+      dataOrigin: videoOrigin,
+      viewsStatus,
       contentType,
       views,
       publishedDaysAgo,
+      publishedPrecision,
       viewsPerDay,
       likes:
         typeof v.likes === "number" && Number.isFinite(v.likes) && v.likes >= 0
@@ -118,12 +152,24 @@ export function evaluateChannelVideosOutliers(
     };
   });
 
-  // 2. Group valid views by format (treat 'unknown' format separately so it doesn't pollute 'long' or 'shorts')
+  // 2. Group ONLY eligible observed videos by known format ('long', 'shorts', 'live') (T03, T04)
+  // Unknown format, legacy_unverified, and demo videos NEVER form a 'derived' baseline!
+  const VALID_BASELINE_FORMATS = new Set(["long", "shorts", "live"]);
   const formatGroups = new Map();
+  const rawFormatCounts = new Map();
+
   for (const v of normalizedVideos) {
     const fmt = v.contentType || "unknown";
+    rawFormatCounts.set(fmt, (rawFormatCounts.get(fmt) || 0) + 1);
     if (!formatGroups.has(fmt)) formatGroups.set(fmt, []);
-    if (v.views !== null) {
+
+    const isEligibleSource =
+      v.dataOrigin === "observed" &&
+      v.viewsStatus === "observed" &&
+      v.views !== null &&
+      VALID_BASELINE_FORMATS.has(fmt);
+
+    if (isEligibleSource) {
       formatGroups.get(fmt).push(v);
     }
   }
@@ -131,15 +177,39 @@ export function evaluateChannelVideosOutliers(
   const baselinesByFormat = {};
   for (const [fmt, group] of formatGroups.entries()) {
     const sampleSize = group.length;
+    if (!VALID_BASELINE_FORMATS.has(fmt)) {
+      baselinesByFormat[fmt] = {
+        format: fmt,
+        sampleSize: 0,
+        rawCount: rawFormatCounts.get(fmt) || 0,
+        minSampleRequired: effectiveMinSample,
+        medianViews: null,
+        trimmedMeanViews: null,
+        status: "insufficient_data",
+        methodVersion: METRICS_METHOD_VERSION,
+        reason: "unknown_video_format_cannot_form_baseline"
+      };
+      continue;
+    }
+
     if (sampleSize < effectiveMinSample) {
+      const hasLegacyOrDemo = normalizedVideos.some(
+        (v) =>
+          v.contentType === fmt &&
+          (v.dataOrigin === "legacy_unverified" || v.viewsStatus === "legacy_unverified")
+      );
       baselinesByFormat[fmt] = {
         format: fmt,
         sampleSize,
         minSampleRequired: effectiveMinSample,
         medianViews: null,
         trimmedMeanViews: null,
-        status: "insufficient_data",
-        reason: `Requires at least ${effectiveMinSample} observed '${fmt}' videos on this channel (found ${sampleSize})`
+        status: hasLegacyOrDemo && sampleSize === 0 ? "unverified_source" : "insufficient_data",
+        methodVersion: METRICS_METHOD_VERSION,
+        reason:
+          hasLegacyOrDemo && sampleSize === 0
+            ? "legacy_unverified_videos_excluded_from_baseline"
+            : `Requires at least ${effectiveMinSample} observed '${fmt}' videos on this channel (found ${sampleSize})`
       };
       continue;
     }
@@ -179,6 +249,7 @@ export function evaluateChannelVideosOutliers(
           : "adequate_sample_size",
       status: "derived",
       methodVersion: METRICS_METHOD_VERSION,
+      baselineVideoIds: group.map((x) => x.videoId || x.id).filter(Boolean),
       reason: null
     };
   }
@@ -187,6 +258,48 @@ export function evaluateChannelVideosOutliers(
   const evaluatedVideos = normalizedVideos.map((v) => {
     const fmt = v.contentType || "unknown";
     const baseline = baselinesByFormat[fmt];
+
+    if (v.dataOrigin === "demo" || v.viewsStatus === "demo") {
+      return {
+        ...v,
+        outlierRatio: null,
+        outlierScore: null,
+        outlierStatus: "demo",
+        outlierReason: "demo_fixture_excluded_from_verified_outliers",
+        baselineMedianViews: null,
+        baselineSampleSize: 0,
+        minSampleRequired: effectiveMinSample,
+        ageSkewWarning: null
+      };
+    }
+
+    if (v.dataOrigin === "legacy_unverified" || v.viewsStatus === "legacy_unverified") {
+      return {
+        ...v,
+        outlierRatio: null,
+        outlierScore: null,
+        outlierStatus: "unverified_source",
+        outlierReason: "legacy_unverified_source_requires_refresh",
+        baselineMedianViews: null,
+        baselineSampleSize: 0,
+        minSampleRequired: effectiveMinSample,
+        ageSkewWarning: null
+      };
+    }
+
+    if (!VALID_BASELINE_FORMATS.has(fmt)) {
+      return {
+        ...v,
+        outlierRatio: null,
+        outlierScore: null,
+        outlierStatus: "insufficient_data",
+        outlierReason: "unknown_video_format_cannot_form_baseline",
+        baselineMedianViews: null,
+        baselineSampleSize: 0,
+        minSampleRequired: effectiveMinSample,
+        ageSkewWarning: null
+      };
+    }
 
     if (
       !baseline ||
@@ -207,6 +320,7 @@ export function evaluateChannelVideosOutliers(
         outlierReason: reason,
         baselineMedianViews: null,
         baselineSampleSize: baseline?.sampleSize ?? 0,
+        minSampleRequired: effectiveMinSample,
         ageSkewWarning: null
       };
     }
@@ -222,11 +336,13 @@ export function evaluateChannelVideosOutliers(
       outlierReason: null,
       baselineMedianViews: baseline.medianViews,
       baselineSampleSize: baseline.sampleSize,
+      minSampleRequired: effectiveMinSample,
       ageSkewWarning: baseline.ageSkewWarning
     };
   });
 
   const validRatios = evaluatedVideos
+    .filter((v) => v.outlierStatus === "derived")
     .map((v) => v.outlierRatio)
     .filter((r) => typeof r === "number" && Number.isFinite(r));
 
@@ -234,15 +350,38 @@ export function evaluateChannelVideosOutliers(
   const maxOutlierScore =
     topOutlierRatio !== null ? computeOutlierTier(topOutlierRatio) : null;
 
+  const allDemo =
+    normalizedVideos.length > 0 && normalizedVideos.every((v) => v.dataOrigin === "demo");
+  const allLegacy =
+    normalizedVideos.length > 0 &&
+    normalizedVideos.every(
+      (v) => v.dataOrigin === "legacy_unverified" || v.viewsStatus === "legacy_unverified"
+    );
+
+  const channelOutlierStatus = validRatios.length
+    ? "derived"
+    : allDemo
+      ? "demo"
+      : allLegacy
+        ? "unverified_source"
+        : "insufficient_data";
+
+  const channelOutlierReason = validRatios.length
+    ? null
+    : allDemo
+      ? "demo_fixture_excluded_from_verified_outliers"
+      : allLegacy
+        ? "legacy_unverified_source_requires_refresh"
+        : `Channel has fewer than ${effectiveMinSample} observed videos in any single format`;
+
   return {
     videos: evaluatedVideos,
     baselinesByFormat,
     maxOutlierScore,
     topOutlierRatio,
-    outlierStatus: validRatios.length ? "derived" : "insufficient_data",
-    outlierReason: validRatios.length
-      ? null
-      : `Channel has fewer than ${effectiveMinSample} videos in any single format`
+    minSampleRequired: effectiveMinSample,
+    outlierStatus: channelOutlierStatus,
+    outlierReason: channelOutlierReason
   };
 }
 
@@ -473,6 +612,7 @@ export function simulateRpmScenario({
  */
 export function buildHonestChannelRecord({
   id,
+  channelId,
   handle = null,
   title = "",
   description = "",
@@ -490,11 +630,13 @@ export function buildHonestChannelRecord({
   dataOrigin = "observed",
   collectedAt = new Date().toISOString()
 } = {}) {
+  const resolvedId = id || channelId;
   const safeVideos = Array.isArray(videos) ? videos : [];
 
-  // 1. Evaluate video-level outliers strictly within format groups
+  // 1. Evaluate video-level outliers strictly within format groups & eligible origins (T03, T04)
   const outlierEval = evaluateChannelVideosOutliers(safeVideos, {
-    minSampleSize: minOutlierSampleSize
+    minSampleSize: minOutlierSampleSize,
+    channelDataOrigin: dataOrigin
   });
 
   // 2. Observed video statistics (only if we have observed videos with views)
@@ -525,7 +667,7 @@ export function buildHonestChannelRecord({
   else if (formatCounts.long > 0 && formatCounts.shorts > 0) dominantContentType = "mixed";
   else if (formatCounts.live > 0) dominantContentType = "live";
 
-  // 3. Separate Channel Age (from observedJoinedAt) vs Oldest Observed Video Age
+  // 3. Separate Channel Age (derived from observedJoinedAt) vs Oldest Observed Video Age (T17, T18)
   let channelAgeMonths = null;
   let channelAgeStatus = "unknown";
   let channelAgeReason = "channel_join_date_not_fetched";
@@ -535,14 +677,14 @@ export function buildHonestChannelRecord({
       channelAgeMonths = Number(
         Math.max(0.1, (Date.now() - joinedMs) / (86400_000 * 30.4375)).toFixed(1)
       );
-      channelAgeStatus = "observed";
+      channelAgeStatus = "derived";
       channelAgeReason = null;
     }
   }
 
   const validDays = outlierEval.videos
     .map((v) => v.publishedDaysAgo)
-    .filter((d) => typeof d === "number" && Number.isFinite(d) && d > 0);
+    .filter((d) => typeof d === "number" && Number.isFinite(d) && d >= 0);
   const oldestObservedVideoDays =
     validDays.length >= 1 ? Number(Math.max(...validDays).toFixed(1)) : null;
 
@@ -564,11 +706,11 @@ export function buildHonestChannelRecord({
     .trim();
   const heuristic = classifyChannelHeuristic(combinedText);
 
-  // 5. Observed 30d views from videos published within last 30 days (only if dates & views exist)
+  // 5. Observed 30d upload views (T17: explicitly named viewsOfObservedRecentUploads, NOT total channel monthlyViews!)
   const videosLast30d = outlierEval.videos.filter(
     (v) => v.views !== null && v.publishedDaysAgo !== null && v.publishedDaysAgo <= 30
   );
-  const observed30dVideoViews =
+  const viewsOfObservedRecentUploads =
     videosLast30d.length > 0
       ? videosLast30d.reduce((sum, v) => sum + v.views, 0)
       : null;
@@ -578,28 +720,34 @@ export function buildHonestChannelRecord({
     niche: heuristic.niche,
     avgDurationMinutes,
     contentType: dominantContentType === "shorts" ? "shorts" : "long",
-    monthlyViews: observed30dVideoViews,
+    monthlyViews: null, // True 30-day channel views require comparable snapshots or user scenario input
     countryMultiplier: 1.0
   });
 
-  // 7. Attach scenario revenue per video only when video views are known
-  const videosWithScenario = outlierEval.videos.map((v) => ({
-    ...v,
-    estimatedRevenue:
-      v.views !== null && rpmScenario.estimatedRpm !== null
-        ? Math.round((v.views / 1000) * rpmScenario.estimatedRpm)
-        : null,
-    estimatedRevenueStatus:
-      v.views !== null ? "estimated_scenario" : "unknown"
-  }));
+  // 7. Attach format-aware scenario revenue per video only when video views are known
+  const videosWithScenario = outlierEval.videos.map((v) => {
+    const vRpm =
+      v.contentType === "shorts"
+        ? 0.12
+        : rpmScenario.estimatedRpm;
+    return {
+      ...v,
+      estimatedRevenue:
+        v.views !== null && vRpm !== null
+          ? Math.round((v.views / 1000) * vRpm)
+          : null,
+      estimatedRevenueStatus:
+        v.views !== null ? "estimated" : "unknown"
+    };
+  });
 
   return {
-    id,
+    id: resolvedId,
     handle: handle || null,
     title: title || "Unknown Channel",
     description: description || "",
     avatarUrl: avatarUrl || null,
-    dataOrigin, // 'observed' | 'legacy_unverified' | 'demo'
+    dataOrigin, // 'observed' | 'legacy_unverified' | 'demo' | 'imported_pending'
     collectedAt,
 
     // Strictly separated market & geography fields
@@ -623,7 +771,7 @@ export function buildHonestChannelRecord({
     facelessStatus: heuristic.facelessStatus,
     facelessReason: heuristic.facelessReason,
     facelessSignals: heuristic.facelessSignals,
-    facelessConfidence: null, // Deprecated uncalibrated probability removed
+    facelessConfidence: null,
     isAiContent: heuristic.isAiContent,
     aiLabel: heuristic.aiLabel,
     aiStatus: heuristic.aiStatus,
@@ -674,25 +822,29 @@ export function buildHonestChannelRecord({
     channelAgeReason,
     oldestObservedVideoDays,
 
-    // Growth & Realtime tracking (only populated when >= 2 real timestamped snapshots exist)
+    // Growth & Realtime tracking (only populated when >= 2 comparable snapshots exist)
     growthRate30d: null,
-    growthStatus: "accumulating_snapshots",
+    growthStatus: "not_comparable",
     realtime48hViews: null,
     hourly48hSeries: [],
 
     // Scenario RPM & Revenue simulation
     estimatedRpm: rpmScenario.estimatedRpm,
     rpmStatus: rpmScenario.rpmStatus,
-    monthlyViews: observed30dVideoViews,
-    monthlyViewsStatus: observed30dVideoViews !== null ? "derived_from_30d_sample" : "unknown",
-    monthlyRevenueMin: rpmScenario.monthlyRevenueMin,
-    monthlyRevenueMax: rpmScenario.monthlyRevenueMax,
-    revenueStatus: rpmScenario.revenueStatus,
+    monthlyViews: null,
+    monthlyViewsStatus: "unknown",
+    viewsOfObservedRecentUploads,
+    viewsOfObservedRecentUploadsStatus:
+      viewsOfObservedRecentUploads !== null ? "derived" : "unknown",
+    monthlyRevenueMin: null,
+    monthlyRevenueMax: null,
+    revenueStatus: "unknown",
     revenueAssumptions: rpmScenario.assumptions,
 
     // Outlier summary
     maxOutlierScore: outlierEval.maxOutlierScore,
     topOutlierRatio: outlierEval.topOutlierRatio,
+    minSampleRequired: outlierEval.minSampleRequired,
     outlierStatus: outlierEval.outlierStatus,
     outlierReason: outlierEval.outlierReason,
     baselinesByFormat: outlierEval.baselinesByFormat,
@@ -700,7 +852,7 @@ export function buildHonestChannelRecord({
     videos: videosWithScenario,
     provenance: {
       methodVersion: METRICS_METHOD_VERSION,
-      minOutlierSampleSize,
+      minOutlierSampleSize: outlierEval.minSampleRequired,
       subscribersMetric: createMetric({
         value: observedSubscribers,
         status: observedSubscribers !== null ? "observed" : "unknown",
@@ -710,10 +862,11 @@ export function buildHonestChannelRecord({
       }),
       outlierMetric: createMetric({
         value: outlierEval.topOutlierRatio,
-        status: outlierEval.outlierStatus === "derived" ? "derived" : "unknown",
+        status: outlierEval.outlierStatus,
         source: dataOrigin,
         collectedAt,
         sampleSize: videosWithScenario.length,
+        minRequired: outlierEval.minSampleRequired,
         methodVersion: METRICS_METHOD_VERSION,
         reason: outlierEval.outlierReason
       }),

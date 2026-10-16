@@ -1,6 +1,7 @@
-// Internal Company Web API Server (Batch 2, 3, 4)
-// Loopback-bound by default, CORS allowlist, Role-Based Auth (manager / member),
-// Strict JSON validation, SQLite WAL repository, and Shared Team Workflow endpoints.
+// Internal Company Web API Server (v2.1 Review & Redesign Remediation)
+// Loopback-bound by default, CORS allowlist, Strict Session/Token Auth by default (T01),
+// Server-Enforced RBAC & Transition Policy (T02), Optimistic Concurrency (T08),
+// Honest Cohort Growth & Unclamped Exports (T05, T09), and No Import Side Effects (T19).
 
 import http from "node:http";
 import fs from "node:fs";
@@ -13,6 +14,7 @@ import {
   getChannelDetail,
   getChannelGrowthTracking,
   toggleChannelWatchlist,
+  setChannelWatchlistState,
   getVideoTranscriptLive,
   generateVideoProductionOutline,
   auditThumbnailAndTitle,
@@ -21,9 +23,11 @@ import {
   getSwipeData,
   createSwipeItem,
   updateSwipeItem,
+  transitionSwipeItem,
   deleteSwipeItem,
   generateSwipeProductionBrief,
   bulkImportTargets,
+  getImportTargets,
   exportShortlist,
   getBatchExtensionMetrics,
   getPublicSettings,
@@ -34,8 +38,13 @@ import {
   listTeamUsers,
   createTeamUser,
   updateTeamUser,
+  rotateUserApiToken,
+  getPersonalApiTokenForUser,
+  getUserCapabilities,
+  maskApiToken,
   SWIPE_WORKFLOW_STAGES,
-  SWIPE_WORKFLOW_STAGE_LABELS
+  SWIPE_WORKFLOW_STAGE_LABELS,
+  WORKFLOW_TRANSITION_POLICY
 } from "./core/engine.mjs";
 import { NICHE_CPM_TABLE } from "./core/seed-data.mjs";
 import {
@@ -55,11 +64,6 @@ const PUBLIC_DIR = path.resolve(__dirname, "../public");
 export const PORT = Number(process.env.PORT || 3088);
 export const HOST = process.env.HOST || "127.0.0.1";
 const MAX_BODY_BYTES = 1_048_576; // 1 MB limit
-
-// Initialize SQLite migration, recover any interrupted jobs, and sync persisted schedule
-ensureDbMigrated();
-recoverInterruptedCrawlJobs();
-syncScheduleFromDb();
 
 function getAllowedOrigin(req) {
   const origin = req.headers.origin;
@@ -101,9 +105,9 @@ function sendJson(req, res, status, payload, extraHeaders = {}) {
 }
 
 /**
- * Strictly parses JSON request bodies with a 1MB size limit.
- * Malformed JSON throws an error with statusCode = 400 (never silently returns {}).
- */
+  * Strictly parses JSON request bodies with a 1MB size limit.
+  * Malformed JSON throws an error with statusCode = 400 (never silently returns {}).
+  */
 function readJsonBodyStrict(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
@@ -190,13 +194,20 @@ function isLoopbackAddress(addr = "") {
 }
 
 /**
- * Resolves the authenticated user for API requests.
- * - If a token/cookie is provided, validates it against SQLite sessions/API tokens;
- *   invalid tokens immediately return 401.
- * - For same-origin local loopback requests without an explicit token, falls back to the
- *   default local manager account unless NEXLEV_STRICT_AUTH=true is set.
+ * Resolves the authenticated user for API requests (T01).
+ * Strict authentication is enforced by default on all protected /api/* routes.
+ * Unauthenticated requests return 401 AUTH_REQUIRED unless NEXLEV_DEV_AUTH_BYPASS === "true"
+ * is explicitly set on a loopback socket.
  */
 function authenticateRequest(req, db) {
+  const origin = req.headers.origin;
+  if (origin && !getAllowedOrigin(req)) {
+    const err = new Error("Origin không được phép truy cập API.");
+    err.statusCode = 403;
+    err.code = "FORBIDDEN_ORIGIN";
+    throw err;
+  }
+
   const explicitToken = extractTokenFromRequest(req);
   if (explicitToken) {
     const user = resolveUserFromToken(db, explicitToken);
@@ -209,40 +220,34 @@ function authenticateRequest(req, db) {
     return user;
   }
 
-  const origin = req.headers.origin;
-  if (origin && !getAllowedOrigin(req)) {
-    const err = new Error("Origin không được phép truy cập API.");
-    err.statusCode = 403;
-    err.code = "FORBIDDEN_ORIGIN";
-    throw err;
-  }
-
-  if (process.env.NEXLEV_STRICT_AUTH === "true" || !isLoopbackAddress(req.socket?.remoteAddress)) {
-    const err = new Error("Yêu cầu đăng nhập (Missing authentication token).");
-    err.statusCode = 401;
-    err.code = "AUTH_REQUIRED";
-    throw err;
-  }
-
-  // Loopback default convenience user (admin manager)
-  const defaultAdmin = db
-    .prepare("SELECT * FROM users WHERE role = 'manager' AND is_active = 1 ORDER BY created_at ASC LIMIT 1")
-    .get();
-  return defaultAdmin
-    ? {
+  // Strict auth by default (T01): only allow bypass if NEXLEV_DEV_AUTH_BYPASS === "true"
+  if (
+    process.env.NEXLEV_DEV_AUTH_BYPASS === "true" &&
+    process.env.NEXLEV_STRICT_AUTH !== "true" &&
+    isLoopbackAddress(req.socket?.remoteAddress)
+  ) {
+    const defaultAdmin = db
+      .prepare(
+        "SELECT * FROM users WHERE role = 'manager' AND is_active = 1 ORDER BY created_at ASC LIMIT 1"
+      )
+      .get();
+    if (defaultAdmin) {
+      return {
         id: defaultAdmin.id,
         username: defaultAdmin.username,
         displayName: defaultAdmin.display_name,
         role: defaultAdmin.role,
-        apiToken: defaultAdmin.api_token
-      }
-    : {
-        id: "user-manager-admin",
-        username: "admin",
-        displayName: "Quản lý Team (Manager)",
-        role: "manager",
-        apiToken: ""
+        hasApiToken: Boolean(defaultAdmin.api_token),
+        apiTokenPreview: maskApiToken(defaultAdmin.api_token),
+        capabilities: getUserCapabilities(defaultAdmin.role)
       };
+    }
+  }
+
+  const err = new Error("Yêu cầu đăng nhập (Missing authentication token).");
+  err.statusCode = 401;
+  err.code = "AUTH_REQUIRED";
+  throw err;
 }
 
 function requireManagerRole(user) {
@@ -265,7 +270,7 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml"
 };
 
-export async function handleHttpRequest(req, res) {
+export async function handleHttpRequest(req, res, customDb = null) {
   if (req.method === "OPTIONS") {
     if (req.headers.origin && !getAllowedOrigin(req)) {
       return sendJson(req, res, 403, { error: "Origin not allowed" });
@@ -276,12 +281,21 @@ export async function handleHttpRequest(req, res) {
   const urlObj = new URL(req.url || "/", `http://${HOST}:${PORT}`);
   const pathname = urlObj.pathname;
   const query = Object.fromEntries(urlObj.searchParams.entries());
-  const db = ensureDbMigrated();
+  const db = ensureDbMigrated(customDb);
 
   try {
     // ========================================================================
-    // AUTHENTICATION & TEAM USER MANAGEMENT ENDPOINTS
+    // PUBLIC HEALTH & AUTHENTICATION ENDPOINTS
     // ========================================================================
+
+    if ((pathname === "/api/v1/health" || pathname === "/api/health") && req.method === "GET") {
+      return sendJson(req, res, 200, {
+        ok: true,
+        status: "healthy",
+        version: "2.1.0",
+        sqliteMode: "WAL"
+      });
+    }
 
     if (pathname === "/api/v1/auth/login" && req.method === "POST") {
       const body = await readJsonBodyStrict(req);
@@ -322,24 +336,15 @@ export async function handleHttpRequest(req, res) {
       );
     }
 
-    if (pathname === "/api/v1/auth/bootstrap" && req.method === "GET") {
-      if (!isLoopbackAddress(req.socket?.remoteAddress)) {
-        return sendJson(req, res, 403, { error: "Bootstrap only allowed on loopback" });
-      }
-      const user = authenticateRequest(req, db);
-      return sendJson(req, res, 200, {
-        ok: true,
-        user,
-        apiToken: user.apiToken,
-        teamUsers: listTeamUsers(db)
-      });
-    }
-
-    // All other /api/* routes require valid authentication
+    // All other /api/* routes require valid authentication (T01)
     let currentUser = null;
     if (pathname.startsWith("/api/")) {
       currentUser = authenticateRequest(req, db);
     }
+
+    // ========================================================================
+    // AUTHENTICATED SESSION, PERSONAL TOKEN & TEAM USER MANAGEMENT (T01, T13)
+    // ========================================================================
 
     if (pathname === "/api/v1/auth/me" && req.method === "GET") {
       return sendJson(req, res, 200, {
@@ -349,9 +354,41 @@ export async function handleHttpRequest(req, res) {
       });
     }
 
+    if (pathname === "/api/v1/auth/bootstrap" && req.method === "GET") {
+      // Never leak raw apiTokens for team accounts (T01)
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: currentUser,
+        teamUsers: listTeamUsers(db)
+      });
+    }
+
+    if (pathname === "/api/v1/auth/token" && req.method === "GET") {
+      const personalToken = getPersonalApiTokenForUser(db, currentUser.id);
+      return sendJson(req, res, 200, {
+        ok: true,
+        apiToken: personalToken,
+        apiTokenPreview: maskApiToken(personalToken)
+      });
+    }
+
+    if (pathname === "/api/v1/auth/token/rotate" && req.method === "POST") {
+      const body = await readJsonBodyStrict(req);
+      const targetUserId =
+        body.userId && currentUser.role === "manager" ? String(body.userId) : currentUser.id;
+      if (targetUserId !== currentUser.id) {
+        requireManagerRole(currentUser);
+      }
+      const rotated = rotateUserApiToken(db, targetUserId);
+      return sendJson(req, res, 200, {
+        ok: true,
+        ...rotated
+      });
+    }
+
     if (pathname === "/api/v1/users" && req.method === "GET") {
       return sendJson(req, res, 200, {
-        users: listTeamUsers(db, { includeTokens: currentUser.role === "manager" })
+        users: listTeamUsers(db)
       });
     }
 
@@ -411,9 +448,20 @@ export async function handleHttpRequest(req, res) {
         db
       );
       const trackedCount = db
-        .prepare("SELECT COUNT(*) AS c FROM channels WHERE is_tracked = 1 AND (? = 1 OR data_origin != 'demo')")
+        .prepare(
+          "SELECT COUNT(*) AS c FROM channels WHERE is_tracked = 1 AND (? = 1 OR data_origin != 'demo')"
+        )
         .get(includeDemo ? 1 : 0).c;
       const swipeCount = db.prepare("SELECT COUNT(*) AS c FROM swipe_items").get().c;
+      const pendingApprovalCount = db
+        .prepare("SELECT COUNT(*) AS c FROM swipe_items WHERE workflow_stage = 'discovered'")
+        .get().c;
+      const activeProductionCount = db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM swipe_items WHERE workflow_stage IN ('briefing', 'assigned', 'published', 'review')"
+        )
+        .get().c;
+
       const filterTemplates = db
         .prepare("SELECT * FROM filter_templates ORDER BY created_at ASC")
         .all()
@@ -430,12 +478,15 @@ export async function handleHttpRequest(req, res) {
         totalOutliers: outlierRes.totalCount,
         trackedCount,
         swipeCount,
+        pendingApprovalCount,
+        activeProductionCount,
         includeDemo,
         minOutlierSampleSize: settings.minOutlierSampleSize,
         currentUser,
         teamUsers: listTeamUsers(db),
         workflowStages: SWIPE_WORKFLOW_STAGES,
         workflowStageLabels: SWIPE_WORKFLOW_STAGE_LABELS,
+        workflowPolicy: WORKFLOW_TRANSITION_POLICY,
         niches: Object.entries(NICHE_CPM_TABLE).map(([name, meta]) => ({
           name,
           ...meta
@@ -542,6 +593,27 @@ export async function handleHttpRequest(req, res) {
       return sendJson(req, res, 200, scanRes);
     }
 
+    if (
+      pathname.startsWith("/api/v1/channels/") &&
+      pathname.endsWith("/watchlist") &&
+      (req.method === "PUT" || req.method === "POST")
+    ) {
+      const channelId = decodeURIComponent(
+        pathname.replace("/api/v1/channels/", "").replace(/\/watchlist$/, "")
+      );
+      const body = await readJsonBodyStrict(req);
+      const result = setChannelWatchlistState(
+        channelId,
+        {
+          isTracked: body.isTracked,
+          note: body.note,
+          actorUsername: currentUser?.username || "admin"
+        },
+        db
+      );
+      return sendJson(req, res, 200, { ok: true, ...result });
+    }
+
     if (pathname.startsWith("/api/v1/channels/") && req.method === "GET") {
       const channelId = decodeURIComponent(pathname.replace("/api/v1/channels/", ""));
       const detail = getChannelDetail(channelId, db);
@@ -564,22 +636,26 @@ export async function handleHttpRequest(req, res) {
     }
 
     // ========================================================================
-    // 5. SHARED COMPANY WATCHLIST & SNAPSHOT GROWTH TRACKER
+    // 5. SHARED COMPANY WATCHLIST & SNAPSHOT GROWTH TRACKER (T05, T09)
     // ========================================================================
 
     if (pathname === "/api/v1/tracker" && req.method === "GET") {
-      const { channels } = queryChannels(
-        { includeDemo: query.includeDemo || "false", limit: 200 },
+      const { channels, totalCount } = queryChannels(
+        {
+          ...query,
+          includeDemo: query.includeDemo || "false",
+          trackedOnly: true,
+          limit: query.limit || 200
+        },
         db
       );
-      const tracked = channels
-        .filter((c) => c.isTracked)
-        .map((c) => ({
-          ...c,
-          growthTracking: getChannelGrowthTracking(c.id, db)
-        }));
+      const tracked = channels.map((c) => ({
+        ...c,
+        growthTracking: getChannelGrowthTracking(c.id, db)
+      }));
       return sendJson(req, res, 200, {
         count: tracked.length,
+        totalCount,
         channels: tracked
       });
     }
@@ -587,11 +663,12 @@ export async function handleHttpRequest(req, res) {
     if (pathname === "/api/v1/tracker/toggle" && req.method === "POST") {
       const body = await readJsonBodyStrict(req);
       if (!body.channelId) {
-        return sendJson(req, res, 400, { error: "Thiếu channelId" });
+        return sendJson(req, res, 400, { error: "Thiếu channelId", code: "MISSING_CHANNEL_ID" });
       }
       const resToggle = toggleChannelWatchlist(
         body.channelId,
         {
+          isTracked: body.isTracked,
           note: body.note,
           actorUsername: currentUser?.username || "admin"
         },
@@ -601,7 +678,7 @@ export async function handleHttpRequest(req, res) {
     }
 
     // ========================================================================
-    // 6. SHARED IDEA LIBRARY & 6-STAGE TEAM WORKFLOW (SWIPE FILE)
+    // 6. SHARED IDEA LIBRARY & 6-STAGE TEAM WORKFLOW (T02, T08)
     // ========================================================================
 
     if (pathname === "/api/v1/swipe" && req.method === "GET") {
@@ -609,7 +686,8 @@ export async function handleHttpRequest(req, res) {
         {
           folderId: query.folderId || "all",
           stage: query.stage || "all",
-          assignee: query.assignee || "all"
+          assignee: query.assignee || "all",
+          query: query.query || ""
         },
         db
       );
@@ -624,20 +702,40 @@ export async function handleHttpRequest(req, res) {
           createdBy: currentUser?.username || "admin",
           updatedBy: currentUser?.username || "admin"
         },
-        db
+        db,
+        currentUser
       );
       return sendJson(req, res, 201, { ok: true, item });
     }
 
     if (
       pathname.startsWith("/api/v1/swipe/") &&
-      pathname.endsWith("/brief") &&
+      pathname.endsWith("/transition") &&
       req.method === "POST"
     ) {
       const id = decodeURIComponent(
-        pathname.replace("/api/v1/swipe/", "").replace(/\/brief$/, "")
+        pathname.replace("/api/v1/swipe/", "").replace(/\/transition$/, "")
       );
-      const updated = generateSwipeProductionBrief(id, db);
+      const body = await readJsonBodyStrict(req);
+      const updated = transitionSwipeItem(id, body, db, currentUser);
+      return sendJson(req, res, 200, { ok: true, item: updated });
+    }
+
+    if (
+      pathname.startsWith("/api/v1/swipe/") &&
+      (pathname.endsWith("/brief") || pathname.endsWith("/generate-brief")) &&
+      req.method === "POST"
+    ) {
+      const id = decodeURIComponent(
+        pathname
+          .replace("/api/v1/swipe/", "")
+          .replace(/\/(generate-)?brief$/, "")
+      );
+      const body = await readJsonBodyStrict(req);
+      const updated = generateSwipeProductionBrief(id, db, {
+        overwrite: Boolean(body.overwrite),
+        actor: currentUser
+      });
       return sendJson(req, res, 200, { ok: true, item: updated });
     }
 
@@ -647,46 +745,46 @@ export async function handleHttpRequest(req, res) {
     ) {
       const id = decodeURIComponent(pathname.replace("/api/v1/swipe/", ""));
       const body = await readJsonBodyStrict(req);
-
-      // If transitioning to 'approved' or 'assigned', verify manager permission when enforceManagerApproval is active
-      if (
-        currentUser?.role === "member" &&
-        body.enforceRoleCheck === true &&
-        (body.workflowStage === "approved" || body.workflowStage === "assigned")
-      ) {
-        requireManagerRole(currentUser);
-      }
-
       const updated = updateSwipeItem(
         id,
         {
           ...body,
           updatedBy: currentUser?.username || "admin"
         },
-        db
+        db,
+        currentUser
       );
       return sendJson(req, res, 200, { ok: true, item: updated });
     }
 
     if (pathname.startsWith("/api/v1/swipe/") && req.method === "DELETE") {
       const id = decodeURIComponent(pathname.replace("/api/v1/swipe/", ""));
-      const result = deleteSwipeItem(id, db);
+      const result = deleteSwipeItem(id, db, currentUser);
       return sendJson(req, res, 200, { ok: true, ...result });
     }
 
     // ========================================================================
-    // 7. BULK IMPORT, SHORTLIST EXPORT & CHROME EXTENSION BATCH METRICS
+    // 7. BULK IMPORT, SHORTLIST EXPORT & CHROME EXTENSION BATCH METRICS (T09, T10)
     // ========================================================================
 
     if (pathname === "/api/v1/import/bulk" && req.method === "POST") {
       const body = await readJsonBodyStrict(req);
-      const result = bulkImportTargets(body.lines || body.input || [], db);
+      const result = bulkImportTargets(body.lines || body.input || [], db, currentUser);
       return sendJson(req, res, 200, { ok: true, ...result });
+    }
+
+    if (pathname === "/api/v1/import/targets" && req.method === "GET") {
+      const targets = getImportTargets(db, {
+        status: query.status || "all",
+        limit: Number(query.limit || 100)
+      });
+      return sendJson(req, res, 200, { ok: true, targets });
     }
 
     if (pathname === "/api/v1/export" && req.method === "GET") {
       const format = query.format === "csv" ? "csv" : "json";
-      const target = query.target === "swipe" ? "swipe" : "channels";
+      const validTargets = ["channels", "videos", "watchlist", "swipe", "ideas", "production"];
+      const target = validTargets.includes(query.target) ? query.target : "channels";
       const exported = exportShortlist({ format, target, filters: query }, db);
       res.writeHead(200, {
         "Content-Type": exported.contentType,
@@ -823,25 +921,33 @@ export async function handleHttpRequest(req, res) {
     return sendJson(req, res, 404, { error: "Not found" });
   } catch (err) {
     const status = Number(err?.statusCode) || 500;
-    return sendJson(req, res, status, {
+    const payload = {
       error: err?.message || "Internal server error",
       code: err?.code || "INTERNAL_ERROR"
-    });
+    };
+    if (err?.serverItem) {
+      payload.serverItem = err.serverItem;
+    }
+    return sendJson(req, res, status, payload);
   }
 }
 
-export function createNexlevServer() {
-  return http.createServer(handleHttpRequest);
+export function createNexlevServer(options = {}) {
+  const customDb = options.db || null;
+  return http.createServer((req, res) => handleHttpRequest(req, res, customDb));
 }
 
-// Start server if executed directly as main script
+// Start server if executed directly as main script (T19: no side effects on import)
 const isMain =
   process.argv[1] &&
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isMain) {
+  ensureDbMigrated();
+  recoverInterruptedCrawlJobs();
+  syncScheduleFromDb();
   const server = createNexlevServer();
   server.listen(PORT, HOST, () => {
-    console.log(`🚀 Nexlev Internal Team Studio running at http://${HOST}:${PORT}`);
+    console.log(`Nexlev Internal Team Studio running at http://${HOST}:${PORT}`);
   });
 }

@@ -1,598 +1,914 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nexlev Team Studio — Nội Bộ Nghiên Cứu Ngách, Outlier &amp; Giao Brief Sản Xuất</title>
+  <title>Nexlev Studio — Hệ thống Nghiên cứu Ngách &amp; Sản xuất Nội bộ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="app-shell">
-    <!-- Sidebar Navigation -->
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-logo">NX</div>
-        <div>
-          <div class="brand-title">NEXLEV <span>TEAM</span></div>
-          <div class="brand-sub">Honest Data + SQLite WAL v2.0</div>
+    <!-- ====================================================================
+         LEFT SIDEBAR (208px Fixed Width — 4 Core Work Views + Manager Admin)
+         ==================================================================== -->
+    <aside class="app-sidebar" aria-label="Điều hướng chính">
+      <div class="sidebar-brand">
+        <div class="brand-identity">
+          <span class="brand-mark" aria-hidden="true">NX</span>
+          <span class="brand-title">Nexlev Studio</span>
         </div>
+        <span class="brand-version">v2.1</span>
       </div>
 
-      <!-- Current Logged-in Employee Card -->
-      <div class="sidebar-card" style="margin-bottom:0.85rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
-          <div>
-            <div class="sidebar-card-title" id="auth-user-display">👤 Đang kiểm tra...</div>
-            <div class="ch-meta" id="auth-user-role">Quyền: —</div>
-          </div>
-          <button type="button" id="btn-open-login" class="btn-ghost" style="padding:0.35rem 0.6rem;font-size:0.78rem;">
-            🔐 Đổi TK
+      <nav class="sidebar-nav">
+        <div class="sidebar-section-label">Không gian làm việc</div>
+
+        <button type="button" class="nav-item active" data-route="discover" id="nav-discover">
+          <span class="nav-item-left">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="7" cy="7" r="4.75"></circle>
+              <path d="M10.5 10.5L14 14" stroke-linecap="round"></path>
+            </svg>
+            <span>Khám phá</span>
+          </span>
+          <span class="nav-badge num" id="badge-discover-count">0</span>
+        </button>
+
+        <button type="button" class="nav-item" data-route="watchlist" id="nav-watchlist">
+          <span class="nav-item-left">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2.5 12.5L6 8.5L9 10.5L13.5 4.5" stroke-linecap="round" stroke-linejoin="round"></path>
+              <path d="M10.5 4.5H13.5V7.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+            <span>Watchlist</span>
+          </span>
+          <span class="nav-badge num" id="badge-watchlist-count">0</span>
+        </button>
+
+        <button type="button" class="nav-item" data-route="ideas" id="nav-ideas">
+          <span class="nav-item-left">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 2.5H12V13.5L8 10.75L4 13.5V2.5Z" stroke-linejoin="round"></path>
+            </svg>
+            <span>Ý tưởng</span>
+          </span>
+          <span class="nav-badge num" id="badge-ideas-count">0</span>
+        </button>
+
+        <button type="button" class="nav-item" data-route="production" id="nav-production">
+          <span class="nav-item-left">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2.25" y="3" width="11.5" height="10" rx="1.5"></rect>
+              <path d="M6 3V13M10 3V13" stroke-linecap="round"></path>
+            </svg>
+            <span>Sản xuất</span>
+          </span>
+          <span class="nav-badge num" id="badge-production-count">0</span>
+        </button>
+
+        <div id="sidebar-admin-group" style="display: none;">
+          <div class="sidebar-section-label">Hệ thống</div>
+          <button type="button" class="nav-item" data-route="admin" id="nav-admin">
+            <span class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="8" r="2.25"></circle>
+                <path d="M8 2V3.5M8 12.5V14M2 8H3.5M12.5 8H14M3.75 3.75L4.8 4.8M11.2 11.2L12.25 12.25M12.25 3.75L11.2 4.8M4.8 11.2L3.75 12.25" stroke-linecap="round"></path>
+              </svg>
+              <span>Quản trị</span>
+            </span>
           </button>
         </div>
-      </div>
-
-      <nav class="nav-list" aria-label="Main Navigation">
-        <button class="nav-btn active" data-tab="niche-finder">
-          <span class="nav-icon">🔍</span>
-          <span>Tìm Kênh &amp; Ngách</span>
-          <span class="nav-badge" id="badge-channels">0</span>
-        </button>
-        <button class="nav-btn" data-tab="outliers">
-          <span class="nav-icon">🔥</span>
-          <span>Outlier Video Radar</span>
-          <span class="nav-badge hot" id="badge-outliers">0</span>
-        </button>
-        <button class="nav-btn" data-tab="swipe-file">
-          <span class="nav-icon">🗂️</span>
-          <span>Thư Viện Ý Tưởng &amp; Giao Việc</span>
-          <span class="nav-badge" id="badge-swipe">0</span>
-        </button>
-        <button class="nav-btn" data-tab="tracker">
-          <span class="nav-icon">📡</span>
-          <span>Watchlist Chung &amp; Lịch Sử</span>
-          <span class="nav-badge" id="badge-tracker">0</span>
-        </button>
-        <button class="nav-btn" data-tab="thumbnail-lab">
-          <span class="nav-icon">🎨</span>
-          <span>Kiểm Thử Tiêu Đề &amp; Thumb</span>
-        </button>
-        <button class="nav-btn" data-tab="settings">
-          <span class="nav-icon">⚙️</span>
-          <span>Quản Lý Team, Crawler &amp; Keys</span>
-        </button>
       </nav>
 
-      <div class="sidebar-card">
-        <div class="sidebar-card-title">🛡️ Nguyên Tắc Dữ Liệu Trung Thực</div>
-        <p>Tự động phân biệt <strong>Quan sát trực tiếp</strong>, <strong>Tính toán (n&ge;3)</strong>, <strong>Ước lượng kịch bản</strong> và <strong>Unknown</strong>.</p>
-        <div class="engine-pills">
-          <span class="pill ok" id="pill-origin-summary">SQLite WAL: Ready</span>
-          <span class="pill" id="pill-mcp">MCP + Ext: Sync</span>
+      <div class="sidebar-footer">
+        <button type="button" class="crawler-pill" id="btn-sidebar-crawler" title="Trạng thái trình thu thập YouTube">
+          <span style="display: inline-flex; align-items: center; gap: 7px; min-width: 0;">
+            <span class="status-dot" id="sidebar-crawler-dot"></span>
+            <span id="sidebar-crawler-label" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Trình thu thập: Rảnh</span>
+          </span>
+          <span class="mono num" id="sidebar-crawler-meta">18 TT</span>
+        </button>
+
+        <div class="user-card">
+          <div class="user-card-top">
+            <span class="user-name" id="sidebar-user-name">Chưa đăng nhập</span>
+            <span class="badge badge-neutral" id="sidebar-user-role">—</span>
+          </div>
+          <div class="user-actions-row">
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-copy-own-token" title="Sao chép API Token cá nhân cho Chrome Extension / MCP">
+              API Token
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-logout">
+              Đăng xuất
+            </button>
+          </div>
         </div>
       </div>
     </aside>
 
-    <!-- Main Content Area -->
-    <main class="main-content">
-      <!-- Notification Banner -->
-      <div id="global-toast" style="display:none;margin-bottom:0.85rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(16,185,129,0.16);border:1px solid var(--accent-emerald);color:#e2e8f0;font-size:0.9rem;"></div>
-
-      <!-- Top Header Bar with Live YouTube Scanner & Multi-Country Harvester -->
-      <header class="topbar">
-        <div class="scanner-box">
-          <span class="scanner-icon">🌐</span>
-          <select id="live-scan-country" style="background:var(--bg-base);border:1px solid var(--border-subtle);color:var(--text-main);padding:0.62rem;border-radius:10px;font-size:0.85rem;">
-            <option value="US">🇺🇸 United States (EN)</option>
-            <option value="ALL">🌍 Quét Đa Thị Trường (US/GB/DE/JP/KR/VN/ES)</option>
-            <option value="GB">🇬🇧 United Kingdom (EN)</option>
-            <option value="CA">🇨🇦 Canada (EN)</option>
-            <option value="AU">🇦🇺 Australia (EN)</option>
-            <option value="CH">🇨🇭 Switzerland (DE)</option>
-            <option value="DE">🇩🇪 Germany (DE)</option>
-            <option value="NL">🇳🇱 Netherlands (NL)</option>
-            <option value="SE">🇸🇪 Sweden &amp; Nordics (EN)</option>
-            <option value="FR">🇫🇷 France (FR)</option>
-            <option value="IT">🇮🇹 Italy (IT)</option>
-            <option value="ES">🇪🇸 Spain &amp; LatAm (ES)</option>
-            <option value="JP">🇯🇵 Japan (JA)</option>
-            <option value="KR">🇰🇷 South Korea (KO)</option>
-            <option value="TW">🇹🇼 Taiwan &amp; HK (ZH)</option>
-            <option value="VN">🇻🇳 Vietnam (VI)</option>
-            <option value="BR">🇧🇷 Brazil (PT)</option>
-            <option value="MX">🇲🇽 Mexico (ES)</option>
-            <option value="IN">🇮🇳 India (EN)</option>
-          </select>
-          <input
-            type="text"
-            id="live-scan-input"
-            placeholder="Nhập từ khóa ngách để thu thập dữ liệu có nguồn từ YouTube..."
-          />
-          <button id="btn-live-scan" class="btn-primary">
-            ⚡ Quét Từ Khóa Live
-          </button>
-          <button id="btn-global-crawl" class="btn-ghost" style="border-color:var(--accent-emerald);color:#6ee7b7;">
-            🌍 Quét Hạt Giống Đa Thị Trường
-          </button>
-          <button id="btn-open-bulk-import" class="btn-ghost">
-            📥 Nhập Hàng Loạt (URL/@Handle)
-          </button>
+    <!-- ====================================================================
+         MAIN WORKSPACE AREA (52px Top Context Bar + Active View Canvas)
+         ==================================================================== -->
+    <div class="app-main">
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <h1 class="topbar-title" id="topbar-title">Khám phá</h1>
+          <span class="topbar-subtitle" id="topbar-subtitle">Kho dữ liệu kênh &amp; video đối thủ có kiểm chứng nguồn</span>
         </div>
-        <div class="topbar-stats">
-          <div class="stat-chip">
-            <span class="stat-label">Kênh Nghiên Cứu</span>
-            <strong id="top-stat-channels">0</strong>
-          </div>
-          <div class="stat-chip">
-            <span class="stat-label">Outlier Đủ Mẫu (n&ge;3)</span>
-            <strong class="text-emerald" id="top-stat-outlier">—</strong>
-          </div>
+        <div class="topbar-right" id="topbar-actions">
+          <button type="button" class="btn btn-sm" id="btn-export-current" title="Xuất dữ liệu theo bộ lọc hiện tại">
+            Xuất CSV
+          </button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-open-collect-top">
+            + Thu thập dữ liệu
+          </button>
         </div>
       </header>
 
-      <!-- TAB 1: NICHE FINDER & CHANNEL DISCOVERY -->
-      <section class="tab-panel active" id="tab-niche-finder">
-        <div class="section-header">
-          <div>
-            <h1>Nghiên Cứu Kênh &amp; Ngách (Có Nguồn &amp; Độ Chắc Chắn)</h1>
-            <p>Tách biệt rõ thị trường tìm kiếm (Discovery Market) với quốc gia kênh thực tế, ẩn dữ liệu Demo mặc định và đánh dấu rõ mẫu chưa đủ (&lt;3 video).</p>
-          </div>
-          <div class="inline-controls">
-            <a href="/api/v1/export?target=channels&amp;format=csv" class="btn-ghost" style="text-decoration:none;">⬇️ Xuất CSV</a>
-            <a href="/api/v1/export?target=channels&amp;format=json" class="btn-ghost" style="text-decoration:none;">⬇️ Xuất JSON</a>
-          </div>
-        </div>
-
-        <div class="template-bar" id="filter-templates-bar" style="margin-bottom:0.85rem;"></div>
-
-        <!-- Filters Panel -->
-        <details class="filters-card" open>
-          <summary class="filters-summary">
-            <span>🎛️ Bộ Lọc Chuyên Sâu &amp; Bộ Lọc Chất Lượng Dữ Liệu</span>
-            <div class="filter-actions">
-              <button type="button" id="btn-reset-filters" class="btn-ghost">Đặt lại bộ lọc</button>
-            </div>
-          </summary>
-
-          <form id="niche-filters-form" class="filters-grid">
-            <div class="filter-field">
-              <label for="f-query">1. Từ khóa / Tên kênh / Handle</label>
-              <input type="text" id="f-query" name="query" placeholder="Tìm tên kênh, @handle, từ khóa hạt giống..." />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-dataOrigin">2. Nguồn gốc dữ liệu (Data Quality)</label>
-              <select id="f-dataOrigin" name="dataOrigin">
-                <option value="all">Tất cả dữ liệu nghiên cứu (Observed + Legacy)</option>
-                <option value="observed">Chỉ dữ liệu đã xác minh nguồn (Observed)</option>
-                <option value="legacy_unverified">Dữ liệu cũ chưa xác minh đầy đủ (Legacy)</option>
-                <option value="demo">Chỉ dữ liệu mẫu minh họa (Demo Fixtures)</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-outlierSampleFilter">3. Độ tin cậy mẫu Outlier</label>
-              <select id="f-outlierSampleFilter" name="outlierSampleFilter">
-                <option value="all">Tất cả (Gồm cả kênh chưa đủ mẫu)</option>
-                <option value="sufficient">Đủ mẫu chuẩn (n &ge; 3 video cùng định dạng)</option>
-                <option value="insufficient">Chưa đủ mẫu (&lt; 3 video — cần quét thêm)</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-niche">4. Ngách (Heuristic Niche)</label>
-              <select id="f-niche" name="niche">
-                <option value="all">Tất cả ngách</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-format">5. Định dạng (Format)</label>
-              <select id="f-format" name="format">
-                <option value="all">Tất cả định dạng</option>
-                <option value="documentary">Documentary (Tài liệu)</option>
-                <option value="explainer">Explainer (Giải thích/Bản đồ)</option>
-                <option value="tutorial">Tutorial (Hướng dẫn)</option>
-                <option value="commentary">Commentary / Essay</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-contentType">6. Phân loại thời lượng Video</label>
-              <select id="f-contentType" name="contentType">
-                <option value="all">Tất cả</option>
-                <option value="long">Long-form (&gt; 3 phút)</option>
-                <option value="shorts">Shorts (&le; 60s)</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-isFaceless">7. Nhãn Heuristic Faceless</label>
-              <select id="f-isFaceless" name="isFaceless">
-                <option value="all" selected>Tất cả (Gồm cả Unknown)</option>
-                <option value="true">Có tín hiệu Faceless (Likely Faceless)</option>
-                <option value="false">Có tín hiệu lộ mặt (Likely On-Camera)</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minOutlierScore">8. Điểm Outlier Tối Thiểu</label>
-              <select id="f-minOutlierScore" name="minOutlierScore">
-                <option value="0">0 — Mọi mức</option>
-                <option value="1">1 — Above Avg (&ge; 1.5x)</option>
-                <option value="2">2 — Strong Outlier (&ge; 3.0x)</option>
-                <option value="3">3 — Exceptional (&ge; 5.0x 🔥)</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minAvgViews">9. Views TB Mẫu Quan Sát Tối Thiểu</label>
-              <input type="number" id="f-minAvgViews" name="minAvgViews" placeholder="VD: 50000" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minSubscribers">10. Subscribers Tối Thiểu (Chỉ kênh đã biết Subs)</label>
-              <input type="number" id="f-minSubscribers" name="minSubscribers" placeholder="VD: 5000" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-maxSubscribers">11. Subscribers Tối Đa (Chỉ kênh đã biết Subs)</label>
-              <input type="number" id="f-maxSubscribers" name="maxSubscribers" placeholder="VD: 100000" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-maxVideoCount">12. Số Video Quan Sát Tối Đa</label>
-              <input type="number" id="f-maxVideoCount" name="maxVideoCount" placeholder="VD: 50" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minAvgDurationMinutes">13. Thời lượng TB tối thiểu (Phút)</label>
-              <input type="number" id="f-minAvgDurationMinutes" name="minAvgDurationMinutes" placeholder="VD: 8" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-minRpm">14. Kịch bản RPM Tối Thiểu ($)</label>
-              <input type="number" id="f-minRpm" name="minRpm" placeholder="VD: 6.0" step="0.5" min="0" />
-            </div>
-
-            <div class="filter-field">
-              <label for="f-country">15. Thị trường phát hiện / Quốc gia kênh</label>
-              <select id="f-country" name="country">
-                <option value="all">🌍 Tất cả 18 thị trường</option>
-                <option value="US">🇺🇸 United States</option>
-                <option value="GB">🇬🇧 United Kingdom</option>
-                <option value="CA">🇨🇦 Canada</option>
-                <option value="AU">🇦🇺 Australia</option>
-                <option value="CH">🇨🇭 Switzerland</option>
-                <option value="DE">🇩🇪 Germany</option>
-                <option value="NL">🇳🇱 Netherlands</option>
-                <option value="SE">🇸🇪 Sweden</option>
-                <option value="FR">🇫🇷 France</option>
-                <option value="IT">🇮🇹 Italy</option>
-                <option value="ES">🇪🇸 Spain &amp; LatAm</option>
-                <option value="JP">🇯🇵 Japan</option>
-                <option value="KR">🇰🇷 South Korea</option>
-                <option value="TW">🇹🇼 Taiwan &amp; HK</option>
-                <option value="VN">🇻🇳 Vietnam</option>
-                <option value="BR">🇧🇷 Brazil</option>
-                <option value="MX">🇲🇽 Mexico</option>
-                <option value="IN">🇮🇳 India</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-includeDemo">16. Hiển thị dữ liệu Demo</label>
-              <select id="f-includeDemo" name="includeDemo">
-                <option value="false" selected>Ẩn dữ liệu Demo (Chỉ hiện nghiên cứu thật)</option>
-                <option value="true">Hiện kèm 9 kênh Demo minh họa</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label for="f-sortBy">17. Sắp Xếp Theo</label>
-              <select id="f-sortBy" name="sortBy">
-                <option value="outlier">🔥 Tỷ Lệ Outlier Cao Nhất (Ưu tiên đủ mẫu)</option>
-                <option value="avgViews">👁️ Views Trung Bình Mẫu Cao Nhất</option>
-                <option value="subscribers">👥 Subscribers Đã Xác Minh Cao Nhất</option>
-                <option value="rpm">💎 Kịch Bản RPM Cao Nhất</option>
-                <option value="newest">🌱 Video Quan Sát Mới Nhất</option>
-              </select>
-            </div>
-          </form>
-        </details>
-
-        <!-- Pagination Bar -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin:0.75rem 0;">
-          <div class="ch-meta" id="channels-pagination-info">Đang tải dữ liệu...</div>
-          <div class="inline-controls">
-            <button type="button" id="btn-prev-page" class="btn-ghost" disabled>&larr; Trang trước</button>
-            <button type="button" id="btn-next-page" class="btn-ghost" disabled>Trang sau &rarr;</button>
-          </div>
-        </div>
-
-        <div class="table-wrapper">
-          <table id="channels-table">
-            <thead>
-              <tr>
-                <th>Kênh &amp; Nguồn Dữ Liệu</th>
-                <th>Thị Trường Phát Hiện vs Quốc Gia Kênh</th>
-                <th>Nhãn Heuristic &amp; YPP</th>
-                <th>Subscribers &amp; Mẫu Video</th>
-                <th>Views TB &amp; Median Mẫu</th>
-                <th>Outlier Baseline (Cùng Kênh)</th>
-                <th>Kịch Bản RPM (Ước Lượng)</th>
-                <th>Thao Tác Team</th>
-              </tr>
-            </thead>
-            <tbody id="channels-tbody"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- TAB 2: VIRAL OUTLIERS RADAR -->
-      <section class="tab-panel" id="tab-outliers">
-        <div class="section-header">
-          <div>
-            <h1>🔥 Viral Outliers Radar (Đã Kiểm Chứng Cùng Kênh n &ge; 3)</h1>
-            <p>Chỉ hiển thị mặc định các video có đủ mẫu baseline cùng định dạng trên chính kênh đó (tránh báo hiệu giả từ kênh chỉ có 1 video).</p>
-          </div>
-          <div class="inline-controls">
-            <select id="outlier-days-filter">
-              <option value="0" selected>Mọi thời điểm đăng</option>
-              <option value="30">Trong 30 ngày qua (Có ngày đăng rõ)</option>
-              <option value="90">Trong 90 ngày qua (Có ngày đăng rõ)</option>
-              <option value="365">Trong 365 ngày qua</option>
-            </select>
-            <select id="outlier-sub-filter">
-              <option value="0" selected>Mọi quy mô kênh (Gồm cả kênh chưa rõ Subs)</option>
-              <option value="50000">Kênh đã xác minh &lt; 50K Subs</option>
-              <option value="100000">Kênh đã xác minh &lt; 100K Subs</option>
-            </select>
-            <select id="outlier-sample-toggle">
-              <option value="false" selected>Chỉ hiện video đủ mẫu (n &ge; 3)</option>
-              <option value="true">Hiện cả video chưa đủ mẫu (Insufficient Data)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="outlier-cards-grid" id="outliers-grid"></div>
-      </section>
-
-      <!-- TAB 3: SHARED IDEA LIBRARY & 6-STAGE WORKFLOW -->
-      <section class="tab-panel" id="tab-swipe-file">
-        <div class="section-header">
-          <div>
-            <h1>🗂️ Thư Viện Ý Tưởng Chung &amp; Quy Trình Sản Xuất (6 Bước)</h1>
-            <p>Quy trình chuẩn nội bộ: <strong>1. Phát hiện &rarr; 2. Duyệt &rarr; 3. Brief &rarr; 4. Giao việc &rarr; 5. Đã đăng &rarr; 6. Đánh giá</strong>. Mỗi công việc có người phụ trách, hạn chót (deadline), ghi chú và link kết quả.</p>
-          </div>
-          <div class="inline-controls">
-            <select id="swipe-stage-filter">
-              <option value="all">Tất cả bước quy trình (6 bước)</option>
-              <option value="discovered">1. Phát hiện (Discovered)</option>
-              <option value="approved">2. Duyệt (Approved)</option>
-              <option value="briefing">3. Brief (Briefing)</option>
-              <option value="assigned">4. Giao việc (Assigned)</option>
-              <option value="published">5. Đã đăng (Published)</option>
-              <option value="review">6. Đánh giá (Review)</option>
-            </select>
-            <select id="swipe-assignee-filter">
-              <option value="all">Mọi người phụ trách</option>
-            </select>
-            <button type="button" id="btn-new-idea" class="btn-primary">+ Tạo Ý Tưởng / Việc Mới</button>
-            <a href="/api/v1/export?target=swipe&amp;format=csv" class="btn-ghost" style="text-decoration:none;">⬇️ Xuất CSV</a>
-          </div>
-        </div>
-        <div class="swipe-grid" id="swipe-grid"></div>
-      </section>
-
-      <!-- TAB 4: SHARED WATCHLIST & REAL SNAPSHOT TRACKER -->
-      <section class="tab-panel" id="tab-tracker">
-        <div class="section-header">
-          <div>
-            <h1>📡 Watchlist Kênh Chung &amp; Theo Dõi Snapshot Thực Tế</h1>
-            <p>Đã loại bỏ biểu đồ 48h giả lập hàm sin. Tốc độ tăng trưởng chỉ được tính khi hệ thống thu thập được tối thiểu <strong>2 snapshot thực tế</strong> ở các thời điểm khác nhau.</p>
-          </div>
-        </div>
-        <div class="tracker-grid" id="tracker-grid"></div>
-      </section>
-
-      <!-- TAB 5: THUMBNAIL & TITLE TESTER LAB -->
-      <section class="tab-panel" id="tab-thumbnail-lab">
-        <div class="section-header">
-          <div>
-            <h1>🎨 Kiểm Thử Tiêu Đề &amp; Preview Trên Lưới YouTube</h1>
-            <p>Điểm số đánh giá trung thực cấu trúc văn bản tiêu đề (Title CTR Readiness). Không cộng điểm ảo cho URL ảnh khi chưa phân tích thị giác.</p>
-          </div>
-        </div>
-
-        <div class="lab-layout">
-          <form id="thumbnail-lab-form" class="lab-form-card">
-            <h3>Thiết Lập Tiêu Đề &amp; Ảnh Thử Nghiệm</h3>
-            <div class="filter-field">
-              <label for="lab-title">Tiêu đề Video dự kiến</label>
-              <input
-                type="text"
-                id="lab-title"
-                value="Why Nobody Talks About How Roman Legionaries Survived Winter (48 Hours)"
-                required
-              />
-            </div>
-            <div class="filter-field">
-              <label for="lab-thumb">URL Ảnh Thumbnail (http/https hợp lệ để hiển thị preview)</label>
-              <input
-                type="url"
-                id="lab-thumb"
-                value="https://i.ytimg.com/vi/RlnD7RwfzbE/hqdefault.jpg"
-              />
-            </div>
-            <div class="filter-field">
-              <label for="lab-channel">Tên Kênh Dự Kiến</label>
-              <input type="text" id="lab-channel" value="Team Documentary Studio" />
-            </div>
-            <div class="filter-field">
-              <label for="lab-niche">Ngách Mục Tiêu</label>
-              <select id="lab-niche">
-                <option value="History & Civilizations">History &amp; Civilizations</option>
-                <option value="Finance & Investing">Finance &amp; Investing</option>
-                <option value="True Crime & Investigations">True Crime &amp; Investigations</option>
-                <option value="Aviation & Maritime Disasters">Aviation &amp; Maritime Disasters</option>
-                <option value="AI & Tech Explainers">AI &amp; Tech Explainers</option>
-              </select>
-            </div>
-            <button type="submit" class="btn-primary full-width">
-              🧪 Chấm Điểm Tiêu Đề &amp; Xem Preview
-            </button>
-
-            <div id="lab-audit-result" class="lab-audit-box"></div>
-          </form>
-
-          <div class="yt-simulator-card">
-            <div class="yt-sim-toolbar">
-              <span>Mô Phỏng Trang Chủ YouTube (Dark Mode)</span>
-              <span class="pill ok">Vị trí #2 là Video của bạn</span>
-            </div>
-            <div class="yt-sim-grid" id="yt-sim-grid"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 6: TEAM MANAGEMENT, CRAWLER HEALTH & API KEYS -->
-      <section class="tab-panel" id="tab-settings">
-        <div class="section-header">
-          <div>
-            <h1>⚙️ Quản Trị Nội Bộ: Nhân Viên, Crawler &amp; API Keys</h1>
-            <p>API Keys được lưu tách biệt trong file <code>data/.secrets.local.json</code> (gitignore), không lưu vào DB hay xóa nhầm khi gửi form trống.</p>
-          </div>
-        </div>
-
-        <div class="settings-grid">
-          <!-- 1. Team Users Management (Manager Only) -->
-          <div class="lab-form-card">
-            <h3>👥 Quản Lý Tài Khoản Nhân Viên (Manager / Member)</h3>
-            <div id="team-users-list" class="info-list" style="margin-bottom:1rem;"></div>
-            <form id="create-user-form" style="border-top:1px solid var(--border-subtle);padding-top:0.85rem;">
-              <h4>Thêm Nhân Viên Mới (Chỉ Quản Lý)</h4>
-              <div class="filter-field">
-                <label for="new-user-username">Username đăng nhập</label>
-                <input type="text" id="new-user-username" placeholder="VD: editor03" required />
+      <main class="workspace-body">
+        <!-- ================================================================
+             VIEW 1: KHÁM PHÁ (#/discover/channels & #/discover/videos)
+             ================================================================ -->
+        <section class="workspace-view active" id="view-discover" aria-label="Khám phá Kênh và Video">
+          <div class="discover-toolbar">
+            <!-- Row 1: Mode Switch + Internal Search + Primary Collect CTA -->
+            <div class="command-row">
+              <div class="segmented" role="tablist" aria-label="Chế độ khám phá">
+                <button type="button" class="segmented-btn active" id="mode-btn-channels" data-discover-mode="channels" role="tab" aria-selected="true">
+                  Kênh (<span class="num" id="discover-tab-channels-count">0</span>)
+                </button>
+                <button type="button" class="segmented-btn" id="mode-btn-videos" data-discover-mode="videos" role="tab" aria-selected="false">
+                  Video (<span class="num" id="discover-tab-videos-count">0</span>)
+                </button>
               </div>
-              <div class="filter-field">
-                <label for="new-user-display">Họ tên / Vị trí</label>
-                <input type="text" id="new-user-display" placeholder="VD: Nguyễn Văn A (Scriptwriter)" required />
+
+              <div class="search-box">
+                <svg class="search-box-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="7" cy="7" r="4.75"></circle>
+                  <path d="M10.5 10.5L14 14" stroke-linecap="round"></path>
+                </svg>
+                <input
+                  type="search"
+                  class="input"
+                  id="discover-search-input"
+                  placeholder="Tìm tên kênh, @handle, tiêu đề video hoặc từ khóa trong kho..."
+                  autocomplete="off"
+                />
+                <span class="search-kbd">/</span>
               </div>
-              <div class="filter-field">
-                <label for="new-user-role">Phân quyền</label>
-                <select id="new-user-role">
-                  <option value="member">Thành viên (Member — Nghiên cứu, tạo Brief, cập nhật việc)</option>
-                  <option value="manager">Quản lý (Manager — Duyệt, giao việc, quản lý hệ thống)</option>
+
+              <button type="button" class="btn btn-lg btn-primary" id="btn-open-collect">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M8 2.5V13.5M2.5 8H13.5" stroke-linecap="round"></path>
+                </svg>
+                <span>Thu thập</span>
+              </button>
+            </div>
+
+            <!-- Row 2: Quick Filters + Advanced Filter Popover + Sort -->
+            <div class="quick-filter-row">
+              <div class="quick-filter-left">
+                <!-- Định dạng -->
+                <div class="segmented" aria-label="Định dạng nội dung">
+                  <button type="button" class="segmented-btn active" data-qf-format="all">Tất cả</button>
+                  <button type="button" class="segmented-btn" data-qf-format="long">Video dài</button>
+                  <button type="button" class="segmented-btn" data-qf-format="shorts">Shorts</button>
+                </div>
+
+                <!-- Ngách -->
+                <select class="select" id="discover-niche-select" aria-label="Lọc theo ngách" style="height: 34px;">
+                  <option value="all">Tất cả ngách</option>
+                </select>
+
+                <!-- Outlier Quick Pills -->
+                <div class="segmented" aria-label="Mức Outlier tối thiểu">
+                  <button type="button" class="segmented-btn active" data-qf-outlier="0">Mọi mức</button>
+                  <button type="button" class="segmented-btn" data-qf-outlier="1">≥ 1.5x</button>
+                  <button type="button" class="segmented-btn" data-qf-outlier="2">≥ 3x</button>
+                  <button type="button" class="segmented-btn" data-qf-outlier="3">≥ 5x</button>
+                </div>
+
+                <!-- Bộ lọc nâng cao Popover -->
+                <div class="filter-popover-anchor">
+                  <button type="button" class="btn" id="btn-toggle-filter-popover" aria-expanded="false">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M2 4H14M4.5 8H11.5M7 12H9" stroke-linecap="round"></path>
+                    </svg>
+                    <span>Bộ lọc…</span>
+                    <span class="badge badge-accent num" id="active-filter-badge" style="display: none;">0</span>
+                  </button>
+
+                  <div class="filter-popover" id="discover-filter-popover" role="dialog" aria-label="Bộ lọc chuyên sâu">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                      <strong style="font-size: 12.5px;">Bộ lọc nghiên cứu nâng cao</strong>
+                      <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-discover-filters">Đặt lại</button>
+                    </div>
+
+                    <div class="popover-field">
+                      <label class="popover-label" for="adv-data-origin">Nguồn dữ liệu</label>
+                      <select class="select" id="adv-data-origin">
+                        <option value="observed">Chỉ dữ liệu đã xác minh (Observed)</option>
+                        <option value="all">Kèm dữ liệu cũ (Chưa xác minh nguồn)</option>
+                        <option value="legacy_unverified">Chỉ dữ liệu cũ (Legacy)</option>
+                        <option value="demo">Dữ liệu mẫu (Demo)</option>
+                      </select>
+                    </div>
+
+                    <div class="popover-field">
+                      <label class="popover-label" for="adv-sample-filter">Độ đủ mẫu Outlier (tối thiểu ≥ 3 video)</label>
+                      <select class="select" id="adv-sample-filter">
+                        <option value="all">Mọi kênh</option>
+                        <option value="sufficient">Chỉ kênh đủ mẫu (Outlier đáng tin cậy)</option>
+                        <option value="insufficient">Kênh thiếu mẫu (&lt; ngưỡng tối thiểu)</option>
+                      </select>
+                    </div>
+
+                    <div class="popover-field">
+                      <label class="popover-label" for="adv-faceless">Phân loại khuôn mặt (Heuristic)</label>
+                      <select class="select" id="adv-faceless">
+                        <option value="all">Tất cả</option>
+                        <option value="true">Không lộ mặt (Faceless)</option>
+                        <option value="false">Có người dẫn</option>
+                      </select>
+                    </div>
+
+                    <div class="popover-field">
+                      <label class="popover-label" for="adv-country">Thị trường / Quốc gia</label>
+                      <select class="select" id="adv-country">
+                        <option value="all">Tất cả 18 thị trường</option>
+                      </select>
+                    </div>
+
+                    <div class="form-grid">
+                      <div class="popover-field">
+                        <label class="popover-label" for="adv-max-subs">Người đăng ký tối đa</label>
+                        <select class="select" id="adv-max-subs">
+                          <option value="0">Không giới hạn</option>
+                          <option value="10000">≤ 10.000</option>
+                          <option value="50000">≤ 50.000</option>
+                          <option value="100000">≤ 100.000</option>
+                          <option value="500000">≤ 500.000</option>
+                        </select>
+                      </div>
+                      <div class="popover-field">
+                        <label class="popover-label" for="adv-min-rpm">RPM kịch bản tối thiểu</label>
+                        <select class="select" id="adv-min-rpm">
+                          <option value="0">Mọi mức RPM</option>
+                          <option value="4">≥ $4.00</option>
+                          <option value="8">≥ $8.00</option>
+                          <option value="12">≥ $12.00</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                      <input type="checkbox" id="adv-include-unknown" />
+                      <span>Giữ cả kênh thiếu dữ liệu khi lọc số học</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="quick-filter-right">
+                <label for="discover-sort-select" style="font-size: 12px; color: var(--text-muted);">Sắp xếp:</label>
+                <select class="select" id="discover-sort-select" style="height: 34px;">
+                  <option value="outlier">Outlier cao nhất</option>
+                  <option value="avgViews">Lượt xem trung bình</option>
+                  <option value="subscribers">Người đăng ký</option>
+                  <option value="rpm">RPM kịch bản cao</option>
+                  <option value="newest">Mới cập nhật</option>
                 </select>
               </div>
-              <div class="filter-field">
-                <label for="new-user-pass">Mật khẩu khởi tạo (&ge; 6 ký tự)</label>
-                <input type="password" id="new-user-pass" placeholder="Nhập mật khẩu..." required />
-              </div>
-              <button type="submit" class="btn-primary">+ Tạo Tài Khoản Nhân Viên</button>
-            </form>
+            </div>
+
+            <!-- Active Filter Chips (only visible when non-default advanced filters are applied) -->
+            <div class="active-chips-row" id="discover-active-chips" style="display: none;"></div>
           </div>
 
-          <!-- 2. API Keys & Crawler Schedule -->
-          <div class="lab-form-card">
-            <form id="settings-form">
-              <h3>🔑 Cấu Hình API Keys &amp; Độ Chính Xác</h3>
-              <div class="filter-field">
-                <label for="set-yt-key">YouTube Data API v3 Key (Dùng để lấy chính xác Subscribers, Country, Ngày tạo kênh &amp; Video)</label>
-                <input type="password" id="set-yt-key" placeholder="Để trống nếu muốn giữ nguyên key hiện tại..." />
-                <small id="status-yt-key" class="field-hint"></small>
+          <!-- Discover Table Card (Channels Mode vs Videos Mode) -->
+          <div class="table-card">
+            <div class="table-wrap" id="discover-channels-table-wrap">
+              <table class="data-table" aria-label="Danh sách kênh khám phá">
+                <thead>
+                  <tr>
+                    <th>Kênh</th>
+                    <th class="num">Người đăng ký</th>
+                    <th class="num">Lượt xem TB</th>
+                    <th class="num">Outlier đỉnh</th>
+                    <th class="num">RPM kịch bản</th>
+                    <th class="num">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="discover-channels-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="table-wrap" id="discover-videos-table-wrap" style="display: none;">
+              <table class="data-table" aria-label="Danh sách video Outlier">
+                <thead>
+                  <tr>
+                    <th>Video</th>
+                    <th>Định dạng</th>
+                    <th class="num">Lượt xem</th>
+                    <th class="num">Hệ số Outlier</th>
+                    <th class="num">RPM kịch bản</th>
+                    <th class="num">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="discover-videos-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="table-footer">
+              <div id="discover-pagination-summary">Đang tải dữ liệu...</div>
+              <div style="display: inline-flex; align-items: center; gap: 6px;">
+                <button type="button" class="btn btn-sm" id="btn-discover-prev">Trang trước</button>
+                <span class="mono num" id="discover-page-indicator">1 / 1</span>
+                <button type="button" class="btn btn-sm" id="btn-discover-next">Trang sau</button>
               </div>
-
-              <div class="filter-field">
-                <label for="set-gemini-key">Gemini API Key (`gemini-2.5-flash` — Hỗ trợ gợi ý tiêu đề)</label>
-                <input type="password" id="set-gemini-key" placeholder="Để trống nếu muốn giữ nguyên key hiện tại..." />
-                <small id="status-gemini-key" class="field-hint"></small>
-              </div>
-
-              <div class="filter-field">
-                <label for="set-min-sample">Số video mẫu tối thiểu cùng định dạng để tính Outlier (Mặc định: 3)</label>
-                <input type="number" id="set-min-sample" min="2" max="20" value="3" />
-              </div>
-
-              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">
-                <button type="submit" class="btn-primary">💾 Lưu Cấu Hình (Giữ Key Cũ Nếu Để Trống)</button>
-                <button type="button" id="btn-clear-keys" class="btn-ghost">🗑️ Xóa API Keys</button>
-              </div>
-            </form>
-
-            <hr style="border-color:var(--border-subtle);margin:1.25rem 0;" />
-
-            <h3>🤖 Lịch Chạy Crawler &amp; Trạng Thái Hạt Giống</h3>
-            <div id="crawler-health-box" class="info-list"></div>
-            <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
-              <button type="button" id="btn-toggle-schedule" class="btn-ghost">⏱️ Bật/Tắt Tự Động Quét</button>
-              <button type="button" id="btn-cancel-crawl" class="btn-ghost">🛑 Dừng Job Đang Chạy</button>
             </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+
+        <!-- ================================================================
+             VIEW 2: WATCHLIST (#/watchlist)
+             ================================================================ -->
+        <section class="workspace-view" id="view-watchlist" aria-label="Danh sách kênh theo dõi chung">
+          <div class="discover-toolbar">
+            <div class="command-row">
+              <div class="search-box">
+                <svg class="search-box-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="7" cy="7" r="4.75"></circle>
+                  <path d="M10.5 10.5L14 14" stroke-linecap="round"></path>
+                </svg>
+                <input
+                  type="search"
+                  class="input"
+                  id="watchlist-search-input"
+                  placeholder="Tìm kênh đang theo dõi trong Watchlist..."
+                />
+              </div>
+              <button type="button" class="btn" id="btn-refresh-watchlist">Làm mới</button>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-wrap">
+              <table class="data-table" aria-label="Bảng kênh theo dõi">
+                <thead>
+                  <tr>
+                    <th>Kênh theo dõi</th>
+                    <th class="num">Người đăng ký</th>
+                    <th class="num">Lượt xem TB</th>
+                    <th class="num">Biến động cùng kỳ (Cohort)</th>
+                    <th>Ghi chú nghiên cứu chung</th>
+                    <th class="num">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="watchlist-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================
+             VIEW 3: Ý TƯỞNG (#/ideas)
+             ================================================================ -->
+        <section class="workspace-view" id="view-ideas" aria-label="Kho ý tưởng và duyệt đề tài">
+          <div class="discover-toolbar">
+            <div class="command-row" style="justify-content: space-between; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div class="segmented" role="tablist" aria-label="Bộ lọc trạng thái ý tưởng">
+                  <button type="button" class="segmented-btn active" data-ideas-subview="discovered">
+                    Cần duyệt (<span class="num" id="ideas-count-discovered">0</span>)
+                  </button>
+                  <button type="button" class="segmented-btn" data-ideas-subview="approved">
+                    Đã duyệt (<span class="num" id="ideas-count-approved">0</span>)
+                  </button>
+                  <button type="button" class="segmented-btn" data-ideas-subview="all">
+                    Tất cả (<span class="num" id="ideas-count-all">0</span>)
+                  </button>
+                </div>
+
+                <input
+                  type="search"
+                  class="input"
+                  id="ideas-search-input"
+                  placeholder="Tìm tiêu đề ý tưởng, kênh mẫu, ghi chú..."
+                  style="width: 280px;"
+                />
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" class="btn btn-primary" id="btn-open-new-idea">
+                  + Thêm ý tưởng thủ công
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-wrap">
+              <table class="data-table" aria-label="Bảng kho ý tưởng">
+                <thead>
+                  <tr>
+                    <th>Ý tưởng / Video tham chiếu</th>
+                    <th class="num">Chỉ số gốc</th>
+                    <th>Trạng thái</th>
+                    <th>Người lưu &amp; Ghi chú nghiên cứu</th>
+                    <th class="num">Thao tác duyệt &amp; chuyển giao</th>
+                  </tr>
+                </thead>
+                <tbody id="ideas-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================
+             VIEW 4: SẢN XUẤT (#/production — Table + Split Detail & Kanban)
+             ================================================================ -->
+        <section class="workspace-view" id="view-production" aria-label="Điều phối sản xuất 6 bước">
+          <div class="discover-toolbar">
+            <div class="command-row" style="justify-content: space-between; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <!-- Stage filter pills -->
+                <div class="segmented" aria-label="Giai đoạn sản xuất">
+                  <button type="button" class="segmented-btn active" data-prod-stage="all">Tất cả (6 bước)</button>
+                  <button type="button" class="segmented-btn" data-prod-stage="discovered">1. Phát hiện</button>
+                  <button type="button" class="segmented-btn" data-prod-stage="approved">2. Đã duyệt</button>
+                  <button type="button" class="segmented-btn" data-prod-stage="briefing">3. Brief</button>
+                  <button type="button" class="segmented-btn" data-prod-stage="assigned">4. Giao việc</button>
+                  <button type="button" class="segmented-btn" data-prod-stage="published">5. Đã đăng</button>
+                  <button type="button" class="segmented-btn" data-prod-stage="review">6. Đánh giá</button>
+                </div>
+
+                <select class="select" id="prod-assignee-filter" aria-label="Lọc theo người phụ trách">
+                  <option value="all">Tất cả nhân sự</option>
+                  <option value="mine">Việc của tôi</option>
+                </select>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="segmented" aria-label="Chế độ hiển thị sản xuất">
+                  <button type="button" class="segmented-btn active" id="prod-layout-split" data-prod-layout="split">
+                    Bảng &amp; Chi tiết
+                  </button>
+                  <button type="button" class="segmented-btn" id="prod-layout-kanban" data-prod-layout="kanban">
+                    Kanban 6 bước
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Layout A: Table + Split Detail Panel (Default) -->
+          <div class="production-split" id="production-split-container">
+            <div class="table-card">
+              <div class="table-wrap">
+                <table class="data-table" style="min-width: 560px;" aria-label="Danh sách công việc sản xuất">
+                  <thead>
+                    <tr>
+                      <th>Đề tài / Kênh mẫu</th>
+                      <th>Bước</th>
+                      <th>Phụ trách &amp; Hạn</th>
+                      <th class="num">Outlier</th>
+                    </tr>
+                  </thead>
+                  <tbody id="production-table-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Right Detail Pane (Per-item isolated draft state + optimistic concurrency) -->
+            <aside class="production-detail-pane" id="production-detail-pane" aria-label="Chi tiết công việc &amp; Brief">
+              <div class="detail-pane-header" id="prod-detail-header">
+                <div style="color: var(--text-muted); font-size: 12.5px;">
+                  Chọn một công việc ở bảng bên trái để xem và biên tập Brief, phân công hoặc cập nhật kết quả.
+                </div>
+              </div>
+
+              <div class="detail-pane-tabs" id="prod-detail-tabs" style="display: none;">
+                <button type="button" class="pane-tab active" data-prod-tab="brief">Brief &amp; Giao việc</button>
+                <button type="button" class="pane-tab" data-prod-tab="title-check">Kiểm tra Tiêu đề &amp; Thumb</button>
+                <button type="button" class="pane-tab" data-prod-tab="activity">Nhật ký (<span class="num" id="prod-activity-count">0</span>)</button>
+              </div>
+
+              <div class="detail-pane-body" id="prod-detail-body" style="display: none;"></div>
+
+              <div class="detail-pane-footer" id="prod-detail-footer" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="badge badge-neutral mono" id="prod-revision-badge">Rev #1</span>
+                  <span class="badge badge-warning" id="prod-dirty-indicator" style="display: none;">● Chưa lưu</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button type="button" class="btn btn-sm btn-ghost" id="btn-prod-discard-draft">Hoàn tác</button>
+                  <button type="button" class="btn btn-sm btn-primary" id="btn-prod-save">Lưu thay đổi</button>
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          <!-- Layout B: 6-Column Kanban Board (Optional Toggle) -->
+          <div class="kanban-grid" id="production-kanban-container" style="display: none;"></div>
+        </section>
+
+        <!-- ================================================================
+             VIEW 5: QUẢN TRỊ (#/admin — Manager Only)
+             ================================================================ -->
+        <section class="workspace-view" id="view-admin" aria-label="Quản trị hệ thống">
+          <div class="discover-toolbar">
+            <div class="command-row" style="justify-content: space-between;">
+              <div class="segmented" role="tablist" aria-label="Phân mục Quản trị">
+                <button type="button" class="segmented-btn active" data-admin-tab="users">Nhân sự &amp; Phân quyền</button>
+                <button type="button" class="segmented-btn" data-admin-tab="crawler">Thu thập &amp; Lịch chạy</button>
+                <button type="button" class="segmented-btn" data-admin-tab="settings">Kết nối &amp; Sao lưu</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Admin Sub-tab 1: Nhân sự & Phân quyền -->
+          <div id="admin-panel-users" class="admin-grid">
+            <div class="panel-card" style="grid-column: span 2;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h2 class="panel-card-title">Danh sách tài khoản nội bộ</h2>
+                <span class="form-hint">Đổi mật khẩu hoặc khóa tài khoản sẽ tự động thu hồi mọi phiên đăng nhập và xoay vòng API Token (T01).</span>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" style="min-width: 680px;">
+                  <thead>
+                    <tr>
+                      <th>Tài khoản</th>
+                      <th>Họ tên hiển thị</th>
+                      <th>Vai trò</th>
+                      <th>Trạng thái</th>
+                      <th>API Token (Đã che)</th>
+                      <th class="num">Thao tác quản trị</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-users-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <h2 class="panel-card-title">Tạo tài khoản nhân viên mới</h2>
+              <form id="form-create-user" novalidate style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="form-field">
+                  <label class="form-label" for="new-user-username">Tên đăng nhập (username) *</label>
+                  <input type="text" class="input" id="new-user-username" required minlength="3" aria-errormessage="err-new-username" placeholder="vd: researcher02" />
+                  <div class="field-error-msg" id="err-new-username"><span>!</span> Vui lòng nhập username tối thiểu 3 ký tự.</div>
+                </div>
+                <div class="form-field">
+                  <label class="form-label" for="new-user-display">Tên hiển thị *</label>
+                  <input type="text" class="input" id="new-user-display" required aria-errormessage="err-new-display" placeholder="vd: Nguyễn Văn A (Content)" />
+                  <div class="field-error-msg" id="err-new-display"><span>!</span> Vui lòng nhập tên hiển thị.</div>
+                </div>
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label" for="new-user-role">Vai trò</label>
+                    <select class="select" id="new-user-role">
+                      <option value="member">Thành viên (Member)</option>
+                      <option value="manager">Quản lý (Manager)</option>
+                    </select>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label" for="new-user-password">Mật khẩu khởi tạo *</label>
+                    <input type="password" class="input" id="new-user-password" required minlength="6" aria-errormessage="err-new-password" placeholder="Tối thiểu 6 ký tự" />
+                    <div class="field-error-msg" id="err-new-password"><span>!</span> Mật khẩu cần ít nhất 6 ký tự.</div>
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Tạo tài khoản</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Admin Sub-tab 2: Thu thập & Lịch chạy (Crawler & Import Queue) -->
+          <div id="admin-panel-crawler" class="admin-grid" style="display: none;">
+            <div class="panel-card">
+              <h2 class="panel-card-title">Lịch quét định kỳ 18 thị trường</h2>
+              <div id="admin-crawler-summary" style="font-size: 12.5px; color: var(--text-secondary);"></div>
+              <div class="form-grid">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="admin-schedule-enabled" />
+                  <span>Bật tự động quét ngầm</span>
+                </label>
+                <div class="form-field">
+                  <label class="form-label" for="admin-schedule-interval">Chu kỳ (phút)</label>
+                  <input type="number" class="input num" id="admin-schedule-interval" min="5" max="720" value="30" />
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn btn-primary" id="btn-save-schedule">Lưu lịch quét</button>
+                <button type="button" class="btn" id="btn-trigger-batch-crawl">Chạy quét ngay</button>
+                <button type="button" class="btn btn-danger" id="btn-cancel-crawl">Hủy phiên đang chạy</button>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <h2 class="panel-card-title">Hàng đợi Nhập kênh / video (Import Queue)</h2>
+              <div class="table-wrap" style="max-height: 240px; overflow-y: auto;">
+                <table class="data-table" style="min-width: 440px;">
+                  <thead>
+                    <tr>
+                      <th>Đầu vào</th>
+                      <th>Loại</th>
+                      <th>Trạng thái</th>
+                      <th>Thời gian</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-import-targets-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel-card" style="grid-column: 1 / -1;">
+              <h2 class="panel-card-title">Nhật ký phiên thu thập gần đây (Crawl Jobs &amp; Lease Lock)</h2>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Mã Job</th>
+                      <th>Loại / Nguồn</th>
+                      <th>Trạng thái</th>
+                      <th>Tiến độ thực tế</th>
+                      <th class="num">Kênh mới / Cập nhật</th>
+                      <th>Worker &amp; Thời gian</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-crawl-jobs-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Admin Sub-tab 3: Kết nối & Sao lưu -->
+          <div id="admin-panel-settings" class="admin-grid" style="display: none;">
+            <div class="panel-card">
+              <h2 class="panel-card-title">API Token cá nhân (Chrome Extension &amp; MCP)</h2>
+              <p class="form-hint" style="margin: 0;">
+                Sử dụng token này trong popup Chrome Extension để đồng bộ hệ số Outlier chính xác từ SQLite và lưu video trực tiếp vào kho Ý tưởng.
+              </p>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" class="input mono" id="personal-api-token-input" readonly value="••••••••" style="flex: 1;" />
+                <button type="button" class="btn" id="btn-reveal-personal-token">Hiện</button>
+                <button type="button" class="btn btn-primary" id="btn-copy-personal-token">Sao chép</button>
+                <button type="button" class="btn btn-danger" id="btn-rotate-personal-token">Đổi Token mới</button>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <h2 class="panel-card-title">Cấu hình Độ tin cậy Dữ liệu &amp; API Key</h2>
+              <form id="form-admin-settings" style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label" for="setting-min-sample">Cỡ mẫu Outlier tối thiểu (≥ 3 video cùng định dạng)</label>
+                    <input type="number" class="input num" id="setting-min-sample" min="3" max="30" value="3" required />
+                  </div>
+                  <div class="form-field" style="justify-content: flex-end;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                      <input type="checkbox" id="setting-include-demo" />
+                      <span>Hiển thị dữ liệu mẫu (Demo) mặc định</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label class="form-label" for="setting-yt-key">YouTube Data API v3 Key (<span id="status-yt-key">Chưa cấu hình</span>)</label>
+                  <input type="password" class="input mono" id="setting-yt-key" placeholder="Để trống nếu muốn giữ nguyên API Key hiện tại" autocomplete="off" />
+                </div>
+
+                <div class="form-field">
+                  <label class="form-label" for="setting-gemini-key">Gemini API Key (<span id="status-gemini-key">Chưa cấu hình</span>)</label>
+                  <input type="password" class="input mono" id="setting-gemini-key" placeholder="Để trống nếu muốn giữ nguyên API Key hiện tại" autocomplete="off" />
+                </div>
+
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button type="submit" class="btn btn-primary">Lưu cấu hình &amp; Tính lại Outlier</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 
-  <!-- Modal 1: Channel Deep-Dive, Real Snapshots & Honest Transcript vs Outline -->
-  <dialog id="channel-modal" class="nexlev-dialog">
-    <div class="dialog-header">
-      <div id="modal-channel-title" class="dialog-title">Phân Tích Chuyên Sâu Kênh</div>
-      <button type="button" id="btn-close-modal" class="btn-ghost">✕ Đóng</button>
-    </div>
-    <div id="modal-channel-body" class="dialog-body"></div>
-  </dialog>
-
-  <!-- Modal 2: Login / Switch Employee Account -->
-  <dialog id="login-modal" class="nexlev-dialog" style="max-width:460px;">
-    <div class="dialog-header">
-      <div class="dialog-title">🔐 Đăng Nhập Nội Bộ Công Ty</div>
-      <button type="button" id="btn-close-login" class="btn-ghost">✕ Đóng</button>
-    </div>
-    <div class="dialog-body">
-      <form id="login-form" class="lab-form-card">
-        <div class="filter-field">
-          <label for="login-username">Tên đăng nhập (Username)</label>
-          <input type="text" id="login-username" value="admin" required />
+  <!-- ======================================================================
+       CHANNEL DETAIL DRAWER (640px Slide-Over with 3 Tabs — Section 7)
+       ====================================================================== -->
+  <div class="drawer-backdrop" id="channel-drawer-backdrop" aria-hidden="true">
+    <aside class="channel-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-channel-title">
+      <div class="drawer-header">
+        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+          <div class="channel-avatar" id="drawer-channel-avatar">NX</div>
+          <div style="min-width: 0;">
+            <h2 id="drawer-channel-title" style="margin: 0; font-size: 15px; font-weight: 600;">Tên kênh</h2>
+            <div class="entity-sub" id="drawer-channel-meta">@handle · US</div>
+          </div>
         </div>
-        <div class="filter-field">
-          <label for="login-password">Mật khẩu</label>
-          <input type="password" id="login-password" value="nexlev-admin-2026" required />
-        </div>
-        <button type="submit" class="btn-primary full-width">Đăng Nhập</button>
-      </form>
-      <div class="info-item" style="margin-top:0.85rem;font-size:0.84rem;">
-        <strong>Tài khoản nội bộ mặc định để kiểm thử nhanh:</strong>
-        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap;">
-          <button type="button" class="btn-ghost" data-quick-login="admin:nexlev-admin-2026">
-            👑 Quản lý (admin)
-          </button>
-          <button type="button" class="btn-ghost" data-quick-login="member1:nexlev-member-2026">
-            👤 Nhân viên 1 (member1)
-          </button>
-          <button type="button" class="btn-ghost" data-quick-login="member2:nexlev-member-2026">
-            👤 Nhân viên 2 (member2)
-          </button>
+        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+          <button type="button" class="btn btn-sm" id="btn-drawer-watchlist">Theo dõi</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-drawer-save-idea">+ Lưu ý tưởng</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-close-drawer" aria-label="Đóng">✕</button>
         </div>
       </div>
-    </div>
-  </dialog>
 
-  <!-- Modal 3: Bulk Import URLs / Handles -->
-  <dialog id="bulk-import-modal" class="nexlev-dialog" style="max-width:620px;">
-    <div class="dialog-header">
-      <div class="dialog-title">📥 Nhập Hàng Loạt Kênh Hoặc Video (Bulk Import)</div>
-      <button type="button" id="btn-close-bulk" class="btn-ghost">✕ Đóng</button>
-    </div>
-    <div class="dialog-body">
-      <p class="ch-meta">Nhập mỗi dòng 1 URL kênh (<code>youtube.com/@handle</code>), URL video (<code>youtube.com/watch?v=...</code>), <code>@handle</code> hoặc <code>UC...</code> ID. Hệ thống sẽ kiểm tra từng dòng, loại trùng và thêm vào Watchlist / Thư viện ý tưởng.</p>
-      <textarea id="bulk-import-textarea" rows="7" style="width:100%;background:var(--bg-base);color:var(--text-main);border:1px solid var(--border-subtle);border-radius:10px;padding:0.75rem;margin:0.75rem 0;" placeholder="https://www.youtube.com/@FernTV&#10;https://www.youtube.com/watch?v=RlnD7RwfzbE&#10;@ ImperialHistory"></textarea>
-      <button type="button" id="btn-submit-bulk" class="btn-primary">🚀 Kiểm Tra &amp; Nhập Dữ Liệu</button>
-      <div id="bulk-import-result" style="margin-top:0.85rem;"></div>
-    </div>
-  </dialog>
+      <div class="drawer-kpi-strip" id="drawer-kpi-strip"></div>
 
-  <script src="/app.js" type="module"></script>
+      <div class="detail-pane-tabs" style="padding: 0 20px;">
+        <button type="button" class="pane-tab active" data-drawer-tab="overview">Tổng quan</button>
+        <button type="button" class="pane-tab" data-drawer-tab="videos">Video (<span class="num" id="drawer-video-count">0</span>)</button>
+        <button type="button" class="pane-tab" data-drawer-tab="provenance">Nguồn dữ liệu</button>
+      </div>
+
+      <div class="drawer-body" id="drawer-tab-content"></div>
+    </aside>
+  </div>
+
+  <!-- ======================================================================
+       COLLECT DIALOG (560px Modal: Tab 1 "Từ khóa" | Tab 2 "Kênh hoặc video")
+       ====================================================================== -->
+  <div class="modal-backdrop" id="collect-modal-backdrop" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="collect-modal-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="collect-modal-title">Thu thập dữ liệu từ YouTube</h2>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-close-collect-modal">✕</button>
+      </div>
+
+      <div class="detail-pane-tabs">
+        <button type="button" class="pane-tab active" data-collect-tab="keyword">Quét theo Từ khóa</button>
+        <button type="button" class="pane-tab" data-collect-tab="import">Nhập Kênh hoặc Video</button>
+      </div>
+
+      <!-- Tab 1: Quét trực tiếp theo từ khóa -->
+      <form id="form-collect-keyword" class="modal-body" novalidate>
+        <div class="form-field">
+          <label class="form-label" for="collect-keyword-input">Từ khóa ngách YouTube cần quét trực tiếp *</label>
+          <input
+            type="text"
+            class="input"
+            id="collect-keyword-input"
+            required
+            aria-errormessage="err-collect-keyword"
+            placeholder="vd: stoicism documentary, faceless history, medieval ambient..."
+          />
+          <div class="field-error-msg" id="err-collect-keyword">
+            <span>!</span> Vui lòng nhập từ khóa ngách cần thu thập.
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="form-label" for="collect-country-select">Thị trường tìm kiếm (Discovery Market)</label>
+            <select class="select" id="collect-country-select">
+              <option value="US">Hoa Kỳ (US)</option>
+              <option value="ALL">Đa quốc gia (7 thị trường chính)</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="collect-limit-input">Số kênh tối đa</label>
+            <input type="number" class="input num" id="collect-limit-input" min="1" max="20" value="8" />
+          </div>
+        </div>
+
+        <div class="form-hint">
+          Hệ thống sẽ truy vấn trực tiếp YouTube, lưu video quan sát được vào SQLite WAL và chỉ tính hệ số Outlier khi kênh có tối thiểu ≥ 3 video cùng định dạng.
+        </div>
+
+        <div class="modal-footer" style="margin: 4px -18px -16px;">
+          <button type="button" class="btn" id="btn-cancel-collect-1">Hủy</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-collect-keyword">Bắt đầu quét trực tiếp</button>
+        </div>
+      </form>
+
+      <!-- Tab 2: Nhập URL / @handle / UC... / Video ID -->
+      <form id="form-collect-import" class="modal-body" style="display: none;" novalidate>
+        <div class="form-field">
+          <label class="form-label" for="collect-import-textarea">Danh sách URL YouTube, @handle, Channel ID (UC...) hoặc Video ID *</label>
+          <textarea
+            class="textarea mono"
+            id="collect-import-textarea"
+            required
+            aria-errormessage="err-collect-import"
+            rows="5"
+            placeholder="Mỗi dòng 1 mục:&#10;https://www.youtube.com/@kurzgesagt&#10;https://www.youtube.com/watch?v=dQw4w9WgXcQ&#10;@ fern-tv"
+          ></textarea>
+          <div class="field-error-msg" id="err-collect-import">
+            <span>!</span> Vui lòng nhập ít nhất một URL, @handle hoặc ID hợp lệ.
+          </div>
+        </div>
+        <div class="form-hint" id="collect-import-result-box">
+          Chỉ chấp nhận tên miền chính thức của YouTube (`youtube.com`, `youtu.be`). Các mục chưa có trong kho sẽ được đưa vào hàng đợi `import_targets` chứ không tạo kênh giả.
+        </div>
+        <div class="modal-footer" style="margin: 4px -18px -16px;">
+          <button type="button" class="btn" id="btn-cancel-collect-2">Đóng</button>
+          <button type="submit" class="btn btn-primary">Kiểm tra &amp; Đưa vào hàng đợi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================================================================
+       MANUAL NEW IDEA DIALOG (480px)
+       ====================================================================== -->
+  <div class="modal-backdrop" id="idea-modal-backdrop" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="idea-modal-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="idea-modal-title">Thêm ý tưởng vào kho chung</h2>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-close-idea-modal">✕</button>
+      </div>
+      <form id="form-create-idea" class="modal-body" novalidate>
+        <div class="form-field">
+          <label class="form-label" for="idea-title-input">Tiêu đề ý tưởng / Video tham khảo *</label>
+          <input type="text" class="input" id="idea-title-input" required aria-errormessage="err-idea-title" placeholder="vd: Vì sao Đế chế La Mã sụp đổ nhìn từ góc độ kinh tế" />
+          <div class="field-error-msg" id="err-idea-title"><span>!</span> Vui lòng nhập tiêu đề ý tưởng.</div>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="form-label" for="idea-url-input">URL Video gốc (tùy chọn)</label>
+            <input type="url" class="input" id="idea-url-input" placeholder="https://www.youtube.com/watch?v=..." />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="idea-channel-input">Kênh tham khảo</label>
+            <input type="text" class="input" id="idea-channel-input" placeholder="vd: @FernTV" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="idea-notes-input">Ghi chú góc tiếp cận (Hook / Cấu trúc / Lý do chọn)</label>
+          <textarea class="textarea" id="idea-notes-input" rows="3" placeholder="Phân tích điểm mạnh ở 30s đầu và cách triển khai cho kênh của team..."></textarea>
+        </div>
+        <div class="form-hint">
+          Mọi ý tưởng mới sẽ bắt đầu ở bước <strong>1. Phát hiện (Cần duyệt)</strong> theo quy chuẩn phân quyền T02.
+        </div>
+        <div class="modal-footer" style="margin: 4px -18px -16px;">
+          <button type="button" class="btn" id="btn-cancel-idea-modal">Hủy</button>
+          <button type="submit" class="btn btn-primary">Lưu vào kho Ý tưởng</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================================================================
+       STRICT AUTHENTICATION LOGIN MODAL (T01 — No prefilled passwords)
+       ====================================================================== -->
+  <div class="modal-backdrop" id="auth-modal-backdrop" aria-hidden="true">
+    <div class="modal-dialog modal-sm" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+      <div class="modal-header">
+        <div class="brand-identity">
+          <span class="brand-mark">NX</span>
+          <h2 class="modal-title" id="auth-modal-title">Đăng nhập Nexlev Studio</h2>
+        </div>
+      </div>
+      <form id="form-login" class="modal-body" novalidate>
+        <div class="form-hint">
+          Hệ thống nội bộ yêu cầu xác thực phiên làm việc trước khi truy cập dữ liệu nghiên cứu và quy trình sản xuất.
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="login-username">Tên đăng nhập *</label>
+          <input
+            type="text"
+            class="input"
+            id="login-username"
+            name="username"
+            required
+            autocomplete="username"
+            aria-errormessage="err-login-username"
+            placeholder="Nhập username (vd: admin hoặc member1)"
+          />
+          <div class="field-error-msg" id="err-login-username">
+            <span>!</span> Vui lòng nhập tên đăng nhập.
+          </div>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="login-password">Mật khẩu *</label>
+          <input
+            type="password"
+            class="input"
+            id="login-password"
+            name="password"
+            required
+            autocomplete="current-password"
+            aria-errormessage="err-login-password"
+            placeholder="Nhập mật khẩu của bạn"
+          />
+          <div class="field-error-msg" id="err-login-password">
+            <span>!</span> Vui lòng nhập mật khẩu.
+          </div>
+        </div>
+        <div id="login-server-error" class="conflict-banner" style="display: none;"></div>
+        <div class="modal-footer" style="margin: 4px -18px -16px;">
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Đăng nhập vào Workspace</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
 </body>
 </html>

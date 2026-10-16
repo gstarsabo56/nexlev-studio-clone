@@ -504,7 +504,7 @@ export async function enrichChannelViaYouTubeDataApi(
               );
               const pubAt = vSnip.publishedAt || null;
               const pubDays = pubAt
-                ? Number(Math.max(0.04, (nowMs - Date.parse(pubAt)) / 86_400_000).toFixed(2))
+                ? Number(Math.max(0, (nowMs - Date.parse(pubAt)) / 86_400_000).toFixed(4))
                 : null;
               const cType = classifyVideoContentType({
                 durationSeconds: durParsed.seconds,
@@ -633,9 +633,13 @@ export function parseInnerTubeSearchItem(item, localeHint = "en", collectedAt = 
 // CRAWLER RUNTIME STATE, PERSISTENT SCHEDULE & JOB LIFECYCLE
 // ============================================================================
 
+export const PROCESS_WORKER_ID = `worker_${process.pid}_${crypto.randomBytes(3).toString("hex")}`;
+export const JOB_LEASE_MS = 60_000;
+
 export const crawlerState = {
   isRunning: false,
   currentJobId: null,
+  workerId: PROCESS_WORKER_ID,
   autoScheduleEnabled: false,
   intervalMinutes: 15,
   lastRunAt: null,
@@ -647,23 +651,26 @@ export const crawlerState = {
 let autoTimer = null;
 
 /**
- * Recovers any crawl_jobs left in 'running' state after a process restart.
+ * T11: Recovers any crawl_jobs left in 'running' state ONLY if their lease is missing or expired.
+ * Jobs with a valid lease (`lease_until > now`) from another process (e.g. MCP or CLI worker) are never killed!
  */
-export function recoverInterruptedCrawlJobs(customDb = null) {
+export function recoverInterruptedCrawlJobs(customDb = null, nowIso = new Date().toISOString()) {
   const db = ensureDbMigrated(customDb);
-  const now = new Date().toISOString();
   const info = db
     .prepare(
       `UPDATE crawl_jobs SET
          status = 'failed',
          error_text = 'interrupted_by_restart',
          completed_at = ?
-       WHERE status = 'running'`
+       WHERE status = 'running'
+         AND (lease_until IS NULL OR lease_until < ?)`
     )
-    .run(now);
-  db.prepare(
-    `UPDATE crawl_seeds SET status = 'failed', last_error = 'interrupted_by_restart' WHERE status = 'running'`
-  ).run();
+    .run(nowIso, nowIso);
+  if (info.changes > 0) {
+    db.prepare(
+      `UPDATE crawl_seeds SET status = 'failed', last_error = 'interrupted_by_restart' WHERE status = 'running'`
+    ).run();
+  }
   return info.changes;
 }
 
@@ -744,7 +751,13 @@ export function startBackgroundAutoCrawler(intervalMinutes = 15, enable = false)
 
 export function cancelCrawlJob(jobId = null, customDb = null) {
   const db = ensureDbMigrated(customDb);
-  const targetId = jobId || crawlerState.currentJobId;
+  let targetId = jobId || crawlerState.currentJobId;
+  if (!targetId) {
+    const runningRow = db
+      .prepare("SELECT job_id FROM crawl_jobs WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")
+      .get();
+    targetId = runningRow?.job_id || null;
+  }
   if (!targetId) return { cancelled: false, reason: "no_active_job" };
 
   db.prepare("UPDATE crawl_jobs SET cancel_requested = 1 WHERE job_id = ?").run(targetId);
@@ -779,17 +792,31 @@ export function getCrawlerHealth(customDb = null) {
       errorText: j.error_text,
       requestCount: j.request_count,
       cancelRequested: Boolean(j.cancel_requested),
+      workerId: j.worker_id || null,
+      leaseUntil: j.lease_until || null,
+      heartbeatAt: j.heartbeat_at || null,
+      actorUsername: j.actor_username || "",
       startedAt: j.started_at,
       completedAt: j.completed_at,
       createdAt: j.created_at
     }));
+
+  const activeLeaseJob = db
+    .prepare(
+      "SELECT job_id, worker_id, lease_until FROM crawl_jobs WHERE status = 'running' AND lease_until > ? ORDER BY started_at DESC LIMIT 1"
+    )
+    .get(new Date().toISOString());
 
   const totalChannelsInDb = db
     .prepare("SELECT COUNT(*) AS c FROM channels WHERE data_origin != 'demo'")
     .get().c;
 
   return {
-    crawlerState,
+    crawlerState: {
+      ...crawlerState,
+      isRunning: Boolean(crawlerState.isRunning || activeLeaseJob),
+      currentJobId: crawlerState.currentJobId || activeLeaseJob?.job_id || null
+    },
     seedStats,
     recentJobs,
     countries: GLOBAL_COUNTRIES,
@@ -807,6 +834,7 @@ export async function crawlMultiCountryBatch(
     keywordsPerCountry = 2,
     maxChannelsPerKeyword = 5,
     customKeyword = "",
+    actorUsername = "system",
     searchProvider = null, // Injectable for deterministic tests
     enrichmentProvider = null
   } = {},
@@ -814,17 +842,30 @@ export async function crawlMultiCountryBatch(
 ) {
   const db = ensureDbMigrated(customDb);
   ensureStaticSeedsRegistered(db);
+  recoverInterruptedCrawlJobs(db);
 
-  if (crawlerState.isRunning) {
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  // T11: Check both in-memory state and SQLite lease table so concurrent processes respect active jobs
+  const activeDbJob = db
+    .prepare(
+      "SELECT job_id, worker_id, lease_until FROM crawl_jobs WHERE status = 'running' AND lease_until > ? LIMIT 1"
+    )
+    .get(nowIso);
+
+  if (crawlerState.isRunning || activeDbJob) {
     return {
       alreadyRunning: true,
-      jobId: crawlerState.currentJobId,
+      jobId: crawlerState.currentJobId || activeDbJob?.job_id || null,
+      workerId: activeDbJob?.worker_id || PROCESS_WORKER_ID,
       crawlerState
     };
   }
 
-  const jobId = `job_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
-  const startedAt = new Date().toISOString();
+  const jobId = `job_${nowMs}_${crypto.randomBytes(3).toString("hex")}`;
+  const startedAt = nowIso;
+  const initialLeaseUntil = new Date(nowMs + JOB_LEASE_MS).toISOString();
   crawlerState.isRunning = true;
   crawlerState.currentJobId = jobId;
 
@@ -841,12 +882,24 @@ export async function crawlMultiCountryBatch(
 
   db.prepare(`
     INSERT INTO crawl_jobs (
-      job_id, job_type, status, params_json, progress_json, request_count, started_at, created_at
-    ) VALUES (?, 'multi_country_crawl', 'running', ?, ?, 0, ?, ?)
+      job_id, job_type, status, params_json, progress_json, request_count,
+      worker_id, lease_until, heartbeat_at, actor_username, started_at, created_at
+    ) VALUES (?, 'multi_country_crawl', 'running', ?, ?, 0, ?, ?, ?, ?, ?, ?)
   `).run(
     jobId,
     JSON.stringify(params),
-    JSON.stringify({ seedsCompleted: 0, channelsUpserted: 0 }),
+    JSON.stringify({
+      seedsCompleted: 0,
+      seedsSucceeded: 0,
+      seedsFailed: 0,
+      channelsUpserted: 0,
+      newChannelsCount: 0,
+      updatedChannelsCount: 0
+    }),
+    PROCESS_WORKER_ID,
+    initialLeaseUntil,
+    startedAt,
+    String(actorUsername || "system"),
     startedAt,
     startedAt
   );
@@ -856,10 +909,35 @@ export async function crawlMultiCountryBatch(
   let requestCount = 0;
   let seedsSucceeded = 0;
   let seedsFailed = 0;
-  const minOutlierSampleSize = Number(
-    getAppSetting(db, "minOutlierSampleSize", DEFAULT_MIN_OUTLIER_SAMPLE_SIZE)
+  const minOutlierSampleSize = Math.max(
+    3,
+    Number(getAppSetting(db, "minOutlierSampleSize", DEFAULT_MIN_OUTLIER_SAMPLE_SIZE)) ||
+      DEFAULT_MIN_OUTLIER_SAMPLE_SIZE
   );
   const secrets = loadSecrets();
+
+  const updateJobHeartbeatAndProgress = (extraProgress = {}) => {
+    const hbNow = Date.now();
+    const hbIso = new Date(hbNow).toISOString();
+    const nextLease = new Date(hbNow + JOB_LEASE_MS).toISOString();
+    const progressPayload = {
+      seedsCompleted: seedsSucceeded + seedsFailed,
+      seedsSucceeded,
+      seedsFailed,
+      channelsUpserted: newChannelsCount + updatedChannelsCount,
+      newChannelsCount,
+      updatedChannelsCount,
+      ...extraProgress
+    };
+    db.prepare(`
+      UPDATE crawl_jobs SET
+        progress_json = ?,
+        request_count = ?,
+        heartbeat_at = ?,
+        lease_until = ?
+      WHERE job_id = ?
+    `).run(JSON.stringify(progressPayload), requestCount, hbIso, nextLease, jobId);
+  };
 
   try {
     for (const countryMeta of targetCountries) {
@@ -888,6 +966,10 @@ export async function crawlMultiCountryBatch(
         const seedKeyword = seedRow.keyword;
         const attemptAt = new Date().toISOString();
         markSeedAttemptStart(db, seedKey, attemptAt);
+        updateJobHeartbeatAndProgress({
+          currentMarket: countryMeta.code,
+          currentSeed: seedKeyword
+        });
 
         try {
           let rawVideos = [];
@@ -994,15 +1076,27 @@ export async function crawlMultiCountryBatch(
             else newChannelsCount += 1;
 
             channelsForSeed += 1;
+            updateJobHeartbeatAndProgress({
+              currentMarket: countryMeta.code,
+              currentSeed: seedKeyword
+            });
             if (channelsForSeed >= maxChannelsPerKeyword) break;
           }
 
           // Only mark seed as succeeded AFTER all DB transactions for this seed complete!
           markSeedSuccess(db, seedKey, channelsForSeed, new Date().toISOString());
           seedsSucceeded += 1;
+          updateJobHeartbeatAndProgress({
+            currentMarket: countryMeta.code,
+            lastCompletedSeed: seedKeyword
+          });
         } catch (seedErr) {
           markSeedFailure(db, seedKey, seedErr?.message || "seed_search_failed");
           seedsFailed += 1;
+          updateJobHeartbeatAndProgress({
+            currentMarket: countryMeta.code,
+            lastFailedSeed: seedKeyword
+          });
         }
       }
     }
@@ -1024,6 +1118,15 @@ export async function crawlMultiCountryBatch(
       .prepare("SELECT COUNT(*) AS c FROM channels WHERE data_origin != 'demo'")
       .get().c;
 
+    const finalProgress = {
+      seedsCompleted: seedsSucceeded + seedsFailed,
+      seedsSucceeded,
+      seedsFailed,
+      channelsUpserted: newChannelsCount + updatedChannelsCount,
+      newChannelsCount,
+      updatedChannelsCount
+    };
+
     const summary = {
       jobId,
       status: finalStatus,
@@ -1041,11 +1144,20 @@ export async function crawlMultiCountryBatch(
     db.prepare(`
       UPDATE crawl_jobs SET
         status = ?,
+        progress_json = ?,
         summary_json = ?,
         request_count = ?,
+        lease_until = NULL,
         completed_at = ?
       WHERE job_id = ?
-    `).run(finalStatus, JSON.stringify(summary), requestCount, completedAt, jobId);
+    `).run(
+      finalStatus,
+      JSON.stringify(finalProgress),
+      JSON.stringify(summary),
+      requestCount,
+      completedAt,
+      jobId
+    );
 
     crawlerState.lastRunAt = completedAt;
     crawlerState.totalCrawlsRun += 1;
@@ -1059,6 +1171,7 @@ export async function crawlMultiCountryBatch(
         status = 'failed',
         error_text = ?,
         request_count = ?,
+        lease_until = NULL,
         completed_at = ?
       WHERE job_id = ?
     `).run(err?.message || "batch_crawl_failed", requestCount, completedAt, jobId);
